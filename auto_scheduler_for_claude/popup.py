@@ -50,7 +50,7 @@ class _MONITORINFO(ctypes.Structure):
 __all__ = ['UsagePopup']
 
 if TYPE_CHECKING:
-    from .app import UsageMonitorForClaude
+    from .app import AutoSchedulerForClaude
     from .cache import CacheSnapshot
 
 
@@ -257,7 +257,7 @@ class UsagePopup:
     WIDTH = 340
     _CHECK_MS = 2000
 
-    def __init__(self, app: UsageMonitorForClaude) -> None:
+    def __init__(self, app: AutoSchedulerForClaude) -> None:
         """Create and display a popup window with usage details.
 
         Blocks the calling thread until the window is closed.
@@ -265,7 +265,7 @@ class UsagePopup:
 
         Parameters
         ----------
-        app : UsageMonitorForClaude
+        app : AutoSchedulerForClaude
             Parent application providing ``cache`` for data access.
         """
         self.app = app

@@ -1,5 +1,5 @@
 {
-    "popup_title": "Usage Monitor for Claude",
+    "popup_title": "Auto Scheduler for Claude",
     "menu_show": "Claude उपयोग दिखाएं",
     "tooltip_title": "Claude उपयोग",
     "account": "खाता",
@@ -19,6 +19,15 @@
     "test_threshold_7d": "सीमा (7-दिन)",
     "test_startup": "स्टार्टअप",
     "test_double_click": "डबल-क्लिक",
+    "task_queue": "कार्य कतार",
+    "task_state_waiting": "कोटा की प्रतीक्षा",
+    "task_state_pending": "खाली स्लॉट की प्रतीक्षा",
+    "task_state_running": "चल रहा है",
+    "task_state_done": "पूर्ण (एग्ज़िट {code})",
+    "task_state_interrupted": "बाधित",
+    "quit_tasks_running_title": "कार्य अभी भी चल रहे हैं",
+    "quit_tasks_running": "{count} कतारबद्ध कार्य अभी भी चल रहे हैं।\n\nहाँ - अभी बंद करें और चल रहे कार्य रोकें\nनहीं - उनके पूरा होने तक प्रतीक्षा करें, फिर बंद करें\nरद्द करें - चलते रहने दें",
+    "tooltip_draining": "कार्य पूरे किए जा रहे हैं, फिर बंद होगा...",
     "resets_in": "{duration} में रीसेट ({clock})",
     "resets_tomorrow": "कल रीसेट, {clock}",
     "resets_weekday": "{day} को रीसेट, {clock}",
@@ -35,8 +44,8 @@
         "शनि",
         "रवि"
     ],
-    "loading": "Usage Monitor: लोड हो रहा है...",
-    "error_label": "Usage Monitor: त्रुटि",
+    "loading": "Auto Scheduler: लोड हो रहा है...",
+    "error_label": "Auto Scheduler: त्रुटि",
     "connection_error": "Anthropic API से कनेक्ट नहीं हो सका।",
     "http_error": "API अनुरोध विफल (HTTP {code})।",
     "auth_expired": "सत्र समाप्त - कृपया Claude Code खोलकर फिर से लॉग इन करें।",
@@ -67,6 +76,6 @@
     "status_updated_s": "{s}s पहले अपडेट किया गया",
     "status_next_update": "अगला अपडेट {duration} में",
     "status_refreshing": "रीफ़्रेश हो रहा है...",
-    "already_running": "Usage Monitor for Claude v{running_version} पहले से चल रहा है।\n\nक्या आप चल रही प्रति को बदलना चाहते हैं?",
+    "already_running": "Auto Scheduler for Claude v{running_version} पहले से चल रहा है।\n\nक्या आप चल रही प्रति को बदलना चाहते हैं?",
     "replace_failed": "चल रही प्रति को बदला नहीं जा सका।\n\nकृपया उसे मैन्युअल रूप से बंद करें और फिर से प्रयास करें।"
 }

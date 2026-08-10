@@ -8,12 +8,12 @@ The script queries the GitHub Releases API, compares the latest version against 
 
 ### 1. Save the script
 
-Save the following as `check-update.ps1` next to your `UsageMonitorForClaude.exe` (or in the project root when running from source):
+Save the following as `check-update.ps1` next to your `AutoSchedulerForClaude.exe` (or in the project root when running from source):
 
 ```powershell
-$currentVersion = if ($env:USAGE_MONITOR_VERSION) { $env:USAGE_MONITOR_VERSION } else { '0.0.0' }
+$currentVersion = if ($env:AUTO_SCHEDULER_VERSION) { $env:AUTO_SCHEDULER_VERSION } else { '0.0.0' }
 
-$releaseUrl = 'https://api.github.com/repos/jens-duttke/usage-monitor-for-claude/releases/latest'
+$releaseUrl = 'https://api.github.com/repos/BramscoChill/auto-scheduler-for-claude/releases/latest'
 
 try {
     $release = Invoke-RestMethod -Uri $releaseUrl -TimeoutSec 10
@@ -29,7 +29,7 @@ try {
         $xml = [Windows.Data.Xml.Dom.XmlDocument]::new()
         $xml.LoadXml("<toast activationType='protocol' launch='$($release.html_url)'>
             <visual><binding template='ToastGeneric'>
-                <text>Usage Monitor for Claude</text>
+                <text>Auto Scheduler for Claude</text>
                 <text>Version $latest available (current: $currentVersion)</text>
             </binding></visual>
         </toast>")
@@ -44,11 +44,11 @@ catch {
 }
 ```
 
-The app automatically sets the `USAGE_MONITOR_VERSION` environment variable for all event commands, so the script always knows the currently running version without hardcoding it.
+The app automatically sets the `AUTO_SCHEDULER_VERSION` environment variable for all event commands, so the script always knows the currently running version without hardcoding it.
 
 ### 2. Configure the event command
 
-Add the script to your [`usage-monitor-settings.json`](configuration.md). Choose when to check based on your preference:
+Add the script to your [`auto-scheduler-settings.json`](configuration.md). Choose when to check based on your preference:
 
 **Check on every quota reset** (session resets roughly every 5 hours):
 
@@ -62,7 +62,7 @@ Add the script to your [`usage-monitor-settings.json`](configuration.md). Choose
 
 ```json
 {
-  "on_reset_command": "powershell -ExecutionPolicy Bypass -File .\\check-update.ps1 && if not \"%USAGE_MONITOR_VARIANT%\"==\"seven_day\" exit /b"
+  "on_reset_command": "powershell -ExecutionPolicy Bypass -File .\\check-update.ps1 && if not \"%AUTO_SCHEDULER_VARIANT%\"==\"seven_day\" exit /b"
 }
 ```
 
@@ -84,8 +84,8 @@ Use the **Restart** option in the tray context menu to load the new settings.
 ## How it works
 
 1. On each configured event, the app launches the script as a background process (no console window, no focus stealing)
-2. The script sends a single HTTPS request to `https://api.github.com/repos/jens-duttke/usage-monitor-for-claude/releases/latest`
-3. If the latest release tag is newer than `USAGE_MONITOR_VERSION`, a toast notification appears
+2. The script sends a single HTTPS request to `https://api.github.com/repos/BramscoChill/auto-scheduler-for-claude/releases/latest`
+3. If the latest release tag is newer than `AUTO_SCHEDULER_VERSION`, a toast notification appears
 4. Clicking the notification opens the GitHub release page in your default browser
 5. If the request fails (no internet, API down, rate-limited), the script exits silently
 

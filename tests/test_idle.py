@@ -9,7 +9,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from usage_monitor_for_claude import idle as idle_mod
+from auto_scheduler_for_claude import idle as idle_mod
 
 
 class TestGetIdleSeconds(unittest.TestCase):

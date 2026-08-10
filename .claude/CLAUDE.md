@@ -35,7 +35,7 @@ Prioritize readability and auditability - users handle credentials and must be a
 ## Notifications
 - Windows shows the process's app icon in the toast header. Without an explicit identity that icon is the live tray icon, which reflects the most-exhausted quota - so a "quota reset" or partial-usage toast would carry the exhausted `✕` glyph and contradict its own text. `notification_identity.register_notification_identity()` gives the process a fixed identity instead: it registers `HKCU\Software\Classes\AppUserModelId\<AUMID>` with `DisplayName` + `IconUri` and then calls `SetCurrentProcessExplicitAppUserModelID`, so every toast shows the neutral app logo regardless of the tray icon. No Start Menu shortcut is needed - the registry registration alone is enough for the legacy `Shell_NotifyIcon` toast
 - `register_notification_identity()` runs once in `__main__.py`, right after the single-instance check and **before any window is created** (the AppUserModelID must be set before the process presents UI). It re-registers on every startup because a frozen build extracts the logo to a fresh `sys._MEIPASS` directory each run, changing its path
-- The logo is a **multi-size `.ico`** (`notification_logo.ico`, 16-256 px), never a single PNG: Windows renders the toast header icon small and downscales a single large image so badly that the "C" looks jagged; a multi-size `.ico` lets Windows pick a crisp dedicated frame (the same reason the tray/EXE icon stays sharp). `IconUri` accepts `.ico`. The asset is derived from `usage_monitor_for_claude.ico` with the usage bars emptied (empty-bars = "capacity available"); it is a separate notification-only asset, so the tray/EXE icon is unchanged. It is bundled via the spec `datas`
+- The logo is a **multi-size `.ico`** (`notification_logo.ico`, 16-256 px), never a single PNG: Windows renders the toast header icon small and downscales a single large image so badly that the "C" looks jagged; a multi-size `.ico` lets Windows pick a crisp dedicated frame (the same reason the tray/EXE icon stays sharp). `IconUri` accepts `.ico`. The asset is derived from `auto_scheduler_for_claude.ico` with the usage bars emptied (empty-bars = "capacity available"); it is a separate notification-only asset, so the tray/EXE icon is unchanged. It is bundled via the spec `datas`
 - Registration is best-effort and must never block startup: a missing logo file or a registry write error makes it return early and keep the default identity (the tray icon) - better than an empty/placeholder icon. Setting the AUMID only *after* the registry write succeeds avoids Windows showing its generic 3-square placeholder (which is what an AUMID registered without a resolvable icon produces)
 
 ## Quota Fields
@@ -56,14 +56,26 @@ Prioritize readability and auditability - users handle credentials and must be a
 - The cadence scheduler (`_align_to_reset`) already never schedules a poll into the danger window. Discretionary fetches must defer to it when a reset is within `POLL_FAST`: the popup skips its background refresh (`_should_refresh_usage()`), and the idle-return path realigns via `_reset_aligned_poll_target()` instead of polling immediately. Cold start (no data yet) is the only allowed exception
 - The poll-loop push-forward (which avoids a redundant fetch right after a popup fetch) reacts only to an actual new fetch (`last_success_time` advanced) and never moves a poll past a reset-aligned slot
 
+## Task Queue
+- Split along the pure/side-effect boundary: `tasks.py` loads and validates the registry and computes the selection (no subprocesses, no writes); `task_runner.py` owns processes, the state file, logs, concurrency, and shutdown. Never move a subprocess or a write into `tasks.py`
+- `TaskRunner` is a class despite the functional preference, for the same reason `UsageCache` is one: running processes, completed ids, the drain flag, and the last-seen utilization are mutated from the poll thread, the popup refresh thread, the tray thread, and one watcher thread per task, all behind a single lock. `evaluate()` holds that lock across the whole select-and-start sequence - it is reachable from two threads and a split would double-start a task
+- The gate is `five_hour.utilization <= task.max_usage_percent`, evaluated **at start only**. `<=` not `<`, because that is what makes `max_usage_percent: 0` ("only on a fresh window") a usable value instead of dead config. A task whose threshold is not met is `continue`d, never `break`ed: a blocked task must not stop the scan, which is what makes file order plus thresholds act as priority
+- `five_hour` can be present and `null` (see "Quota Fields"), so the read is `(data.get('five_hour') or {}).get('utilization')` and a `None` result starts nothing
+- One-shot is absolute: any id present in the state file is complete, including a record with `started_at` and no `finished_at` (an interrupted run). Never "resume" one - an unattended agent that got halfway must not be silently restarted. A state file that exists but cannot be parsed disables the queue rather than being treated as empty, which would re-run everything
+- Any failure that would lose a run's output (log dir, log file) prevents the start and disables the queue for the session, reported once. Validation is all-or-nothing per file: one bad entry disables the whole queue, unlike `settings.py`, which drops individual keys
+- `--dangerously-skip-permissions` is hardcoded, as is the `PRINT_MODE_CAVEAT` appended to every prompt. Neither may become opt-out. Both are disclosed in `README.md`, `PRIVACY.md`, and `docs/task-queue.md`
+- `task_command` runs tasks; `cli_command` stays display-only (see "Claude CLI"). Never merge the two
+- The poll loop's idle pause - and only the pause - is skipped while `has_pending_work()`. Interval calculation, reset alignment, the danger-window invariant, and notification deferral stay untouched
+- `task_runner.py` returns `STATUS_*` keys, never localized text; `app.py` maps them to locale strings. The runner must not import `i18n` or the app
+
 ## Security & Transparency
 - All URLs and API endpoints as top-level constants - no dynamic URL construction
 - Network communication exclusively with `api.anthropic.com` - no other destinations
 - Credentials used only in HTTP Authorization headers - never log, store, or transmit elsewhere
-- No file write operations - the app writes no files. The only system state it changes is two `HKCU` registry values: the notification identity (`notification_identity.py`) and the autostart entry (`autostart.py`). Any new persistent write needs a matching update in `README.md` and `PRIVACY.md` - the "writes no files" claim is part of the audit story and must never become inaccurate
+- The app writes exactly three paths, all inside the effective config dir and all owned by the task queue (`task_runner.py`): `auto-scheduler-state.json`, the `auto-scheduler-logs/` directory, and one `<id>-<timestamp>.log` per run. Nothing is written at all until the user creates a task file. Everything else - settings, tasks, credentials - is read-only. The only other system state the app changes is two `HKCU` registry values: the notification identity (`notification_identity.py`) and the autostart entry (`autostart.py`). This exact list is repeated in `README.md` and `PRIVACY.md`; a fourth write path needs all three updated in the same change, because the enumeration is part of the audit story and must never become inaccurate
 - No `eval()`, `exec()`, `compile()`, or dynamic imports - no dynamic code execution
 - No obfuscation - no base64-encoded strings, no encoded URLs or tokens
-- Modular package architecture in `usage_monitor_for_claude/` - small focused modules are easier to audit than one large file
+- Modular package architecture in `auto_scheduler_for_claude/` - small focused modules are easier to audit than one large file
 - Security-critical code (credentials, API calls) isolated in `api.py` - the only module handling credentials
 - Pure data files (translations, config) stay separate - they contain no logic or credential access
 - Minimal, well-known dependencies only (e.g., requests, Pillow, pystray)
@@ -92,7 +104,7 @@ Prioritize readability and auditability - users handle credentials and must be a
 ## Imports
 - Three groups separated by blank lines: standard library, third-party, local
 - Within groups: `import` before `from...import`, sorted alphabetically
-- Relative imports within the `usage_monitor_for_claude` package (e.g. `from .api import ...`), except `__main__.py` which requires absolute imports for PyInstaller compatibility
+- Relative imports within the `auto_scheduler_for_claude` package (e.g. `from .api import ...`), except `__main__.py` which requires absolute imports for PyInstaller compatibility
 - Absolute imports for external packages, avoid wildcards
 
 ## Structure
@@ -115,7 +127,7 @@ Prioritize readability and auditability - users handle credentials and must be a
 - Early returns and guard clauses
 
 ## PyInstaller / Build
-- Spec file: `usage_monitor_for_claude.spec` - all build config lives there
+- Spec file: `auto_scheduler_for_claude.spec` - all build config lives there
 - When adding new data files (translations, configs, assets): add them to the `datas` list in the spec file
 - When adding new imports: check if PyInstaller detects them automatically; if not, add to `hiddenimports`
 - Never exclude standard library modules that are transitive dependencies (e.g., `email` is needed by `urllib3`/`requests`)
@@ -127,7 +139,7 @@ Prioritize readability and auditability - users handle credentials and must be a
 - The feature list follows the user's decision journey - place new features in the appropriate tier:
   1. **Getting started** (barrier to entry): Portable, Zero configuration
   2. **Daily visible value** (what the user sees every day): Live tray icon, Detail popup, Claude Code versions
-  3. **Proactive protection** (alerts and automation): Smart alerts, Event commands
+  3. **Proactive protection** (alerts and automation): Smart alerts, Task queue, Event commands
   4. **Visual quality** (richer understanding of data): Time marker
   5. **Reliability** (it just keeps working): Automatic token refresh, Adaptive polling
   6. **Reach and preferences** (secondary concerns): 13 languages, Customizable
@@ -141,7 +153,7 @@ Prioritize readability and auditability - users handle credentials and must be a
 - Use the `/changelog` command to write the entry - it holds the format, grouping (Added/Changed/Fixed/Removed), user-perspective wording, issue/discussion linking, and the "did the bug ship in the last release?" check
 
 ## Releasing
-- Cut releases with the `/releasing` command - it bumps the version (`__version__` in `usage_monitor_for_claude/__init__.py` plus all four fields in `version_info.py`), rolls `CHANGELOG.md`, runs the tests, and prepares the `gh release create` notes. Per the git rule it never tags or publishes - it hands the final command to you to run
+- Cut releases with the `/releasing` command - it bumps the version (`__version__` in `auto_scheduler_for_claude/__init__.py` plus all four fields in `version_info.py`), rolls `CHANGELOG.md`, runs the tests, and prepares the `gh release create` notes. Per the git rule it never tags or publishes - it hands the final command to you to run
 
 ## Testing
 - After completing all changes, run the full test suite (`python -m unittest discover -s tests`) and ensure all tests pass - this applies to any change (code, locale files, config, data files), not just Python modules

@@ -16,11 +16,11 @@ VSVersionInfo(
                 '040904B0',  # Lang: US English, Charset: Unicode
                 [
                     StringStruct('CompanyName', 'Jens Duttke'),
-                    StringStruct('FileDescription', 'Usage Monitor for Claude'),
+                    StringStruct('FileDescription', 'Auto Scheduler for Claude'),
                     StringStruct('FileVersion', '1.20.0.0'),
-                    StringStruct('InternalName', 'UsageMonitorForClaude'),
-                    StringStruct('OriginalFilename', 'UsageMonitorForClaude.exe'),
-                    StringStruct('ProductName', 'Usage Monitor for Claude'),
+                    StringStruct('InternalName', 'AutoSchedulerForClaude'),
+                    StringStruct('OriginalFilename', 'AutoSchedulerForClaude.exe'),
+                    StringStruct('ProductName', 'Auto Scheduler for Claude'),
                     StringStruct('ProductVersion', '1.20.0.0'),
                 ],
             ),

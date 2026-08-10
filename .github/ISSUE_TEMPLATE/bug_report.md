@@ -7,11 +7,11 @@ labels: ''
 <!-- Tip: If the app fails to start or behaves unexpectedly, running with
 --verbose prints system diagnostics that help identify the problem:
 
-  UsageMonitorForClaude.exe --verbose
+  AutoSchedulerForClaude.exe --verbose
 
 or from source:
 
-  python -m usage_monitor_for_claude --verbose
+  python -m auto_scheduler_for_claude --verbose
 
 Paste the output below if you can - it saves a lot of back and forth. -->
 

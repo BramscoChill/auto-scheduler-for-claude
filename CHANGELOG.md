@@ -9,28 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Task queue** - queue Claude Code prompts in `auto-scheduler-tasks.json` and the app runs them unattended as `claude -p` whenever your five-hour quota drops to the level you set for each one. No wall-clock schedule that burns tokens at a fixed hour or sits idle while quota goes unused: a task starts because there is room for it. Each task runs once, gets its own log file, and reports its status and exit code in the new "Task queue" tray submenu - click a finished task to open its log. Two new settings, `max_concurrent_tasks` (default `1`) and `task_command` (for a CLI the app cannot launch directly, such as one inside WSL), tune it. See the [Task queue section in the README](https://github.com/BramscoChill/auto-scheduler-for-claude#task-queue). **Queued tasks run with `--dangerously-skip-permissions`** - that is what makes unattended execution possible, so only queue prompts you would let run unsupervised
+- Quitting while a queued task is still running now asks what to do: stop it now, let it finish first and quit afterwards, or stay open. While finishing up, the tray tooltip says so
 - Extra usage without a monthly limit (uncapped pay-as-you-go overage, the usual state for Team and Enterprise plans) now appears in the popup as the amount spent - previously the Extra Usage section stayed hidden unless a monthly limit was configured, silently hiding real spending (thanks to [@joeklittle](https://github.com/joeklittle) for the contribution)
 - New `alert_extra_usage_spent` setting - absolute spending amounts in your billing currency (e.g. `[50, 100, 150]`) that trigger a notification when extra-usage spending crosses them; complements the percentage thresholds and is the only alert that can fire for uncapped extra usage, where no percentage exists (thanks to [@joeklittle](https://github.com/joeklittle) for the contribution)
-- [New `icon_style` setting](https://github.com/jens-duttke/usage-monitor-for-claude/issues/78) - set it to `"numbers"` to show both `icon_fields` values as two stacked percentages on the tray icon instead of one percentage with two bars; each row shows `✕` or `$` when its quota is exhausted (thanks to [@Searcus](https://github.com/Searcus) for the suggestion)
+- [New `icon_style` setting](https://github.com/BramscoChill/auto-scheduler-for-claude/issues/78) - set it to `"numbers"` to show both `icon_fields` values as two stacked percentages on the tray icon instead of one percentage with two bars; each row shows `✕` or `$` when its quota is exhausted (thanks to [@Searcus](https://github.com/Searcus) for the suggestion)
+
+### Changed
+
+- **Breaking: the app is now called Auto Scheduler for Claude** (was Usage Monitor for Claude). It has stopped being a passive monitor: it still shows your rate limits, and it now also runs work when there is quota for it. The executable is `AutoSchedulerForClaude.exe`. There is no automatic migration - after upgrading, do the following once:
+  1. Rename your settings file from `usage-monitor-settings.json` to `auto-scheduler-settings.json`.
+  2. Rename any `USAGE_MONITOR_*` environment variables your event-command scripts read to `AUTO_SCHEDULER_*` (for example `USAGE_MONITOR_UTILIZATION_FIVE_HOUR` becomes `AUTO_SCHEDULER_UTILIZATION_FIVE_HOUR`).
+  3. Re-enable "Start with Windows" from the tray menu if you had it on. The old autostart entry (`HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run\UsageMonitorForClaude`) now points at an executable that no longer exists and is not removed automatically - delete it by hand if you want it gone.
+  4. Optionally delete the leftover notification identity at `HKEY_CURRENT_USER\Software\Classes\AppUserModelId\JensDuttke.UsageMonitorForClaude`. It is harmless, but nothing uses it any more.
+- Polling no longer pauses while your computer is idle or locked when the task queue still has work - draining the queue overnight is the point. Without queued work, the idle pause behaves exactly as before
 
 ### Fixed
 
 - With uncapped extra usage enabled, an exhausted quota now shows the "extra usage active" tray indicator instead of the exhausted glyph - work continues on paid overage, so the icon no longer suggests Claude has stopped (thanks to [@joeklittle](https://github.com/joeklittle) for the contribution)
-- The startup and double-click event commands no longer report `USAGE_MONITOR_EXTRA_LIMIT` as a zero amount for uncapped extra usage - the variable is now omitted when there is no monthly limit (thanks to [@joeklittle](https://github.com/joeklittle) for the contribution)
+- The startup and double-click event commands no longer report `AUTO_SCHEDULER_EXTRA_LIMIT` as a zero amount for uncapped extra usage - the variable is now omitted when there is no monthly limit (thanks to [@joeklittle](https://github.com/joeklittle) for the contribution)
 - After an account switch, the tray icon and popup now show the new account's usage right away - previously, when the switch happened while a usage request was already running, the "account switched" notification appeared next to the previous account's numbers, which stayed on screen until the next scheduled poll
 
-[Show all code changes](https://github.com/jens-duttke/usage-monitor-for-claude/compare/v1.20.0...HEAD)
+[Show all code changes](https://github.com/BramscoChill/auto-scheduler-for-claude/compare/v1.20.0...HEAD)
 
 ## [1.20.0] - 2026-07-17
 
 ### Added
 
-- [Multi-account support](https://github.com/jens-duttke/usage-monitor-for-claude/discussions/23) - launch additional instances with `--config-dir="<path>"` to monitor a second Claude account side by side; each instance reads its own credentials and settings, gets its own tray tooltip prefix and autostart entry, and keeps its `--config-dir` across restarts (thanks to [@hybrid2102](https://github.com/hybrid2102) for the contribution)
-- [Custom CLI command](https://github.com/jens-duttke/usage-monitor-for-claude/issues/65) - set `cli_command` (e.g. `{"WSL": ["wsl", "/home/<user>/.local/bin/claude"]}`) to list the Claude Code version of an install the app cannot detect on its own, such as one running inside WSL, alongside the native CLI and the IDE extensions
+- [Multi-account support](https://github.com/BramscoChill/auto-scheduler-for-claude/discussions/23) - launch additional instances with `--config-dir="<path>"` to monitor a second Claude account side by side; each instance reads its own credentials and settings, gets its own tray tooltip prefix and autostart entry, and keeps its `--config-dir` across restarts (thanks to [@hybrid2102](https://github.com/hybrid2102) for the contribution)
+- [Custom CLI command](https://github.com/BramscoChill/auto-scheduler-for-claude/issues/65) - set `cli_command` (e.g. `{"WSL": ["wsl", "/home/<user>/.local/bin/claude"]}`) to list the Claude Code version of an install the app cannot detect on its own, such as one running inside WSL, alongside the native CLI and the IDE extensions
 
 ### Changed
 
-- When a custom config directory is in effect (`--config-dir` or `CLAUDE_CONFIG_DIR`), a `usage-monitor-settings.json` in that directory now takes priority over the one next to the EXE, so each instance can have its own settings
+- When a custom config directory is in effect (`--config-dir` or `CLAUDE_CONFIG_DIR`), a `auto-scheduler-settings.json` in that directory now takes priority over the one next to the EXE, so each instance can have its own settings
 
 ### Fixed
 
@@ -63,16 +74,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `--verbose` diagnostics now redact the Windows username from paths reliably - previously a differently-cased path (e.g. a lowercase `CLAUDE_CONFIG_DIR`) slipped through unredacted, and a neighboring user profile could be partially mangled
 - On Windows 10 versions older than 1703 the app no longer dies at startup with an unhandled error dialog - it now starts with the legacy DPI behavior instead
 - The popup's time marker and day dividers no longer shift by one pixel (with a visible slide animation on the marker) after the first live data update
-- [Notification icon](https://github.com/jens-duttke/usage-monitor-for-claude/issues/67) - alerts and reset notifications now show the app logo instead of the current tray icon, so the icon no longer says "you have nothing left" when a limit was just reset or is only partway used
+- [Notification icon](https://github.com/BramscoChill/auto-scheduler-for-claude/issues/67) - alerts and reset notifications now show the app logo instead of the current tray icon, so the icon no longer says "you have nothing left" when a limit was just reset or is only partway used
 
-[Show all code changes](https://github.com/jens-duttke/usage-monitor-for-claude/compare/v1.19.0...v1.20.0)
+[Show all code changes](https://github.com/BramscoChill/auto-scheduler-for-claude/compare/v1.19.0...v1.20.0)
 
 ## [1.19.0] - 2026-07-14
 
 ### Added
 
 - New `on_double_click_command` event - run a custom command when you double-click the tray icon, while a single click still opens the usage popup. Handy for launching a companion tool like [Agent Monitor for Claude](https://github.com/jens-duttke/agent-monitor-for-claude) straight from the tray. Since a double-click is a user-driven action, a command that fails (non-zero exit code) shows its error output in a dialog instead of failing silently
-- [Turn off the Claude update notification](https://github.com/jens-duttke/usage-monitor-for-claude/issues/64) - set the new `notify_claude_update` setting to `false` to stop the notification shown when a background token refresh installs a new Claude CLI version
+- [Turn off the Claude update notification](https://github.com/BramscoChill/auto-scheduler-for-claude/issues/64) - set the new `notify_claude_update` setting to `false` to stop the notification shown when a background token refresh installs a new Claude CLI version
 
 ### Changed
 
@@ -80,7 +91,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Switching your Claude account now updates the tray icon and popup right away instead of at the next poll (previously up to several minutes, and slower still when the old token had already been rejected and triggered a background `claude update`) - the new account's usage loads as soon as the credentials change
 - After your access token expires and gets refreshed, the app now recovers usage and account info as soon as the new token appears, instead of waiting for the next poll or needing a restart
 
-[Show all code changes](https://github.com/jens-duttke/usage-monitor-for-claude/compare/v1.18.1...v1.19.0)
+[Show all code changes](https://github.com/BramscoChill/auto-scheduler-for-claude/compare/v1.18.1...v1.19.0)
 
 ## [1.18.1] - 2026-07-09
 
@@ -88,7 +99,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Usage again refreshes promptly right after a session limit resets when the detail popup was opened, or you returned from idle, shortly before the reset - such a fetch no longer delays the reset-confirming poll by up to a full update interval, so the tray and popup stop showing the exhausted state late
 
-[Show all code changes](https://github.com/jens-duttke/usage-monitor-for-claude/compare/v1.18.0...v1.18.1)
+[Show all code changes](https://github.com/BramscoChill/auto-scheduler-for-claude/compare/v1.18.0...v1.18.1)
 
 ## [1.18.0] - 2026-07-02
 
@@ -102,21 +113,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Usage now refreshes right after a session limit resets instead of up to a few minutes late - the poll that confirms the reset is timed to land just after it, so the tray icon and popup stop showing the old, exhausted state
 - The reset time no longer vanishes from the popup during the last minute before a reset - it now shows a "Reset imminent" note (matching Claude's own usage screen) instead of leaving the line blank
 
-[Show all code changes](https://github.com/jens-duttke/usage-monitor-for-claude/compare/v1.17.0...v1.18.0)
+[Show all code changes](https://github.com/BramscoChill/auto-scheduler-for-claude/compare/v1.17.0...v1.18.0)
 
 ## [1.17.0] - 2026-06-27
 
 ### Added
 
 - The detail popup can now be pinned open and moved while pinned, so usage details stay visible during long Claude Code sessions (thanks to [@nmxi](https://github.com/nmxi) for the contribution)
-- [New `compact_hide` setting](https://github.com/jens-duttke/usage-monitor-for-claude/issues/55) shrinks the pinned popup to a compact view by hiding chosen sections (account, extra usage, Claude Code versions, status footer) and individual usage bars while it is pinned, so you can keep just the bars you care about on screen; when only the usage bars remain, the "Usage" heading is dropped as well
+- [New `compact_hide` setting](https://github.com/BramscoChill/auto-scheduler-for-claude/issues/55) shrinks the pinned popup to a compact view by hiding chosen sections (account, extra usage, Claude Code versions, status footer) and individual usage bars while it is pinned, so you can keep just the bars you care about on screen; when only the usage bars remain, the "Usage" heading is dropped as well
 - Reset times now follow your Windows clock format automatically, showing 24-hour (14:30) or 12-hour (2:30 PM) without any setup; override with the `time_format` setting (thanks to [@rohitjalan142](https://github.com/rohitjalan142) for the contribution)
 
 ### Fixed
 
-- [The status footer no longer cuts off text in several languages](https://github.com/jens-duttke/usage-monitor-for-claude/issues/53) - the "next update" line was too long to fit the popup width in Spanish, French, Italian, Portuguese, Ukrainian, and Indonesian and got truncated; the affected phrases are now shorter so the full status fits on one line, and a long error message now shows in full on hover
+- [The status footer no longer cuts off text in several languages](https://github.com/BramscoChill/auto-scheduler-for-claude/issues/53) - the "next update" line was too long to fit the popup width in Spanish, French, Italian, Portuguese, Ukrainian, and Indonesian and got truncated; the affected phrases are now shorter so the full status fits on one line, and a long error message now shows in full on hover
 
-[Show all code changes](https://github.com/jens-duttke/usage-monitor-for-claude/compare/v1.16.0...v1.17.0)
+[Show all code changes](https://github.com/BramscoChill/auto-scheduler-for-claude/compare/v1.16.0...v1.17.0)
 
 ## [1.16.0] - 2026-06-13
 
@@ -127,9 +138,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- [Profile requests no longer ignore the rate-limit backoff](https://github.com/jens-duttke/usage-monitor-for-claude/issues/48) - while the API is returning HTTP 429, opening the popup could keep firing account-profile requests against the already rate-limited endpoint and prolong the backoff; profile fetches now wait out the backoff window like usage fetches do
+- [Profile requests no longer ignore the rate-limit backoff](https://github.com/BramscoChill/auto-scheduler-for-claude/issues/48) - while the API is returning HTTP 429, opening the popup could keep firing account-profile requests against the already rate-limited endpoint and prolong the backoff; profile fetches now wait out the backoff window like usage fetches do
 
-[Show all code changes](https://github.com/jens-duttke/usage-monitor-for-claude/compare/v1.15.1...v1.16.0)
+[Show all code changes](https://github.com/BramscoChill/auto-scheduler-for-claude/compare/v1.15.1...v1.16.0)
 
 ## [1.15.1] - 2026-05-17
 
@@ -137,14 +148,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Popup window now appears at the correct screen corner on high-DPI displays and on multi-monitor setups where the primary monitor is not positioned at virtual x=0; previously the popup could render oversized and overflow the screen edges at 150%/200% scaling, or land at the wrong edge when secondary monitors sat to the left of the primary (thanks to [@jnwildfire](https://github.com/jnwildfire) for the contribution)
 
-[Show all code changes](https://github.com/jens-duttke/usage-monitor-for-claude/compare/v1.15.0...v1.15.1)
+[Show all code changes](https://github.com/BramscoChill/auto-scheduler-for-claude/compare/v1.15.0...v1.15.1)
 
 ## [1.15.0] - 2026-05-01
 
 ### Added
 
 - `on_startup_command` event - run a custom command once after the first successful API update following app start (also after using the **Restart** menu option). Receives per-quota utilization and reset timestamps as environment variables, so a command can decide what to do based on which sessions are active - for example, send a Claude Code ping when no five-hour session is running yet
-- [Dim usage bars when data is stale](https://github.com/jens-duttke/usage-monitor-for-claude/discussions/28) - the usage section fades to 40% opacity when no successful update has been received for longer than the poll interval, clearly indicating that the displayed data may be outdated
+- [Dim usage bars when data is stale](https://github.com/BramscoChill/auto-scheduler-for-claude/discussions/28) - the usage section fades to 40% opacity when no successful update has been received for longer than the poll interval, clearly indicating that the displayed data may be outdated
 - Account switch notification - switching to a different Claude account now shows an "Account Switched" notification with the new account's email address instead of a misleading "Quota Reset" notification
 - Overage bar mode for tray icon bars - each entry in `icon_fields` now accepts an optional `:overage` suffix (e.g. `"five_hour:overage"`) to switch that bar to an over-budget view: the bar is empty when usage is at or below the time marker (on pace or ahead) and fills proportionally as usage climbs toward 100%, making it immediately visible how far you have overrun your expected pace
 - Tray icon now distinguishes between "blocked" and "pay-as-you-go" states: a `$` replaces the `C`/percentage when any displayed quota is at 100% but your account still has paid extra-usage credits available, warning that further requests will now consume credits; a `✕` appears only when you are fully blocked (either no extra usage enabled or all credits spent). The `✕` also triggers when the bottom bar reaches 100%, not only the top bar
@@ -158,7 +169,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Usage bars are now always shown in red when they reach 100%, regardless of the time marker position
 - Auto-refresh of the OAuth token now works for users who installed Claude Code via npm - the CLI is discovered via PATH and `%APPDATA%\npm`, not only the native Anthropic installer path (thanks to [@timyjsong](https://github.com/timyjsong) for the contribution)
 
-[Show all code changes](https://github.com/jens-duttke/usage-monitor-for-claude/compare/v1.14.0...v1.15.0)
+[Show all code changes](https://github.com/BramscoChill/auto-scheduler-for-claude/compare/v1.14.0...v1.15.0)
 
 ## [1.14.0] - 2026-03-27
 
@@ -168,28 +179,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Running from source (`python -m usage_monitor_for_claude`) no longer shows log output by default - use `--verbose` to enable diagnostics
+- Running from source (`python -m auto_scheduler_for_claude`) no longer shows log output by default - use `--verbose` to enable diagnostics
 
-[Show all code changes](https://github.com/jens-duttke/usage-monitor-for-claude/compare/v1.13.1...v1.14.0)
+[Show all code changes](https://github.com/BramscoChill/auto-scheduler-for-claude/compare/v1.13.1...v1.14.0)
 
 ## [1.13.1] - 2026-03-27
 
 ### Fixed
 
-- App no longer crashes when the API returns `null` instead of an object for a quota field, e.g. `five_hour: null` (thanks to [@2wplayer](https://github.com/2wplayer) for reporting [#26](https://github.com/jens-duttke/usage-monitor-for-claude/issues/26))
+- App no longer crashes when the API returns `null` instead of an object for a quota field, e.g. `five_hour: null` (thanks to [@2wplayer](https://github.com/2wplayer) for reporting [#26](https://github.com/BramscoChill/auto-scheduler-for-claude/issues/26))
 
-[Show all code changes](https://github.com/jens-duttke/usage-monitor-for-claude/compare/v1.13.0...v1.13.1)
+[Show all code changes](https://github.com/BramscoChill/auto-scheduler-for-claude/compare/v1.13.0...v1.13.1)
 
 ## [1.13.0] - 2026-03-21
 
 ### Added
 
-- [Show app version in popup](https://github.com/jens-duttke/usage-monitor-for-claude/discussions/20) - the popup footer now shows the app version (e.g. "1.13.0") in the bottom-right corner
-- [Dynamic quota bars](https://github.com/jens-duttke/usage-monitor-for-claude/discussions/12) - the popup now automatically detects and displays all usage fields from the API response; no code change needed when Anthropic adds new quota types. Includes configurable `popup_fields` setting and per-variant alert threshold overrides
-- [Configurable tray icon bars](https://github.com/jens-duttke/usage-monitor-for-claude/discussions/11) - new `icon_fields` setting lets you choose which two usage fields are shown in the tray icon (e.g. `["five_hour", "seven_day_sonnet"]`)
-- [Configurable tooltip fields](https://github.com/jens-duttke/usage-monitor-for-claude/discussions/10) - new `tooltip_fields` setting lets you choose which usage fields appear in the tray tooltip (e.g. `["five_hour", "seven_day_sonnet"]`)
+- [Show app version in popup](https://github.com/BramscoChill/auto-scheduler-for-claude/discussions/20) - the popup footer now shows the app version (e.g. "1.13.0") in the bottom-right corner
+- [Dynamic quota bars](https://github.com/BramscoChill/auto-scheduler-for-claude/discussions/12) - the popup now automatically detects and displays all usage fields from the API response; no code change needed when Anthropic adds new quota types. Includes configurable `popup_fields` setting and per-variant alert threshold overrides
+- [Configurable tray icon bars](https://github.com/BramscoChill/auto-scheduler-for-claude/discussions/11) - new `icon_fields` setting lets you choose which two usage fields are shown in the tray icon (e.g. `["five_hour", "seven_day_sonnet"]`)
+- [Configurable tooltip fields](https://github.com/BramscoChill/auto-scheduler-for-claude/discussions/10) - new `tooltip_fields` setting lets you choose which usage fields appear in the tray tooltip (e.g. `["five_hour", "seven_day_sonnet"]`)
 - Support for the `CLAUDE_CONFIG_DIR` environment variable - the app now reads credentials and settings from a custom Claude config directory when set, falling back to `~/.claude/` as before
-- Event commands now receive `USAGE_MONITOR_VERSION` with the running app version, so scripts can use it without hardcoding
+- Event commands now receive `AUTO_SCHEDULER_VERSION` with the running app version, so scripts can use it without hardcoding
 - Configurable `bar_divider` color for midnight dividers on weekly progress bars
 
 ### Changed
@@ -197,7 +208,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved visibility of midnight dividers on weekly bars
 - Time marker color default changed from solid white to slightly transparent (`#fffc`) with a subtle shadow for better contrast on colored bars
 
-[Show all code changes](https://github.com/jens-duttke/usage-monitor-for-claude/compare/v1.12.0...v1.13.0)
+[Show all code changes](https://github.com/BramscoChill/auto-scheduler-for-claude/compare/v1.12.0...v1.13.0)
 
 ## [1.12.0] - 2026-03-20
 
@@ -213,19 +224,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Popup no longer shows an icon in the taskbar while open
 - Popup appearing at the wrong position after changing DPI scaling without restarting the app
 
-[Show all code changes](https://github.com/jens-duttke/usage-monitor-for-claude/compare/v1.11.0...v1.12.0)
+[Show all code changes](https://github.com/BramscoChill/auto-scheduler-for-claude/compare/v1.11.0...v1.12.0)
 
 ## [1.11.0] - 2026-03-20
 
 ### Added
 
-- Single-instance guard - if the app is already running, a dialog shows the running version and asks whether to replace it (thanks to [@GitHubEtienne](https://github.com/GitHubEtienne) for reporting [#6](https://github.com/jens-duttke/usage-monitor-for-claude/issues/6))
+- Single-instance guard - if the app is already running, a dialog shows the running version and asks whether to replace it (thanks to [@GitHubEtienne](https://github.com/GitHubEtienne) for reporting [#6](https://github.com/BramscoChill/auto-scheduler-for-claude/issues/6))
 
 ### Fixed
 
-- Popup no longer dismisses immediately or appears off-screen on displays with DPI scaling above 100% (thanks to [@GitHubEtienne](https://github.com/GitHubEtienne) for reporting [#6](https://github.com/jens-duttke/usage-monitor-for-claude/issues/6) and [@igorrr01](https://github.com/igorrr01) for testing)
+- Popup no longer dismisses immediately or appears off-screen on displays with DPI scaling above 100% (thanks to [@GitHubEtienne](https://github.com/GitHubEtienne) for reporting [#6](https://github.com/BramscoChill/auto-scheduler-for-claude/issues/6) and [@igorrr01](https://github.com/igorrr01) for testing)
 
-[Show all code changes](https://github.com/jens-duttke/usage-monitor-for-claude/compare/v1.10.0...v1.11.0)
+[Show all code changes](https://github.com/BramscoChill/auto-scheduler-for-claude/compare/v1.10.0...v1.11.0)
 
 ## [1.10.0] - 2026-03-18
 
@@ -235,11 +246,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Context-specific titles: popup shows "Usage Monitor for Claude", tooltip shows "Claude Usage", and context menu shows "Show Claude Usage" instead of the generic "Account & Usage" everywhere
+- Context-specific titles: popup shows "Auto Scheduler for Claude", tooltip shows "Claude Usage", and context menu shows "Show Claude Usage" instead of the generic "Account & Usage" everywhere
 - Popup window rebuilt with HTML/CSS rendering (via Edge WebView2) replacing tkinter - smoother bar animations with CSS transitions, no flickering on updates, and more flexible layout
 - Executable size reduced by more than a third (from ~20 MB to ~12.5 MB) by removing unused image codecs and bundled modules
 
-[Show all code changes](https://github.com/jens-duttke/usage-monitor-for-claude/compare/v1.9.0...v1.10.0)
+[Show all code changes](https://github.com/BramscoChill/auto-scheduler-for-claude/compare/v1.9.0...v1.10.0)
 
 ## [1.9.0] - 2026-03-15
 
@@ -252,7 +263,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `on_reset_command` and `on_threshold_command` now accept an array of command strings to run multiple commands per event (single strings still work)
 - `on_reset_command` now fires promptly even when the computer is idle or locked, so automated workflows (e.g. resuming a Claude session) are not delayed until the user returns
 
-[Show all code changes](https://github.com/jens-duttke/usage-monitor-for-claude/compare/v1.8.0...v1.9.0)
+[Show all code changes](https://github.com/BramscoChill/auto-scheduler-for-claude/compare/v1.8.0...v1.9.0)
 
 ## [1.8.0] - 2026-03-15
 
@@ -266,7 +277,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Brief console window flash when checking CLI version or refreshing the authentication token
 
-[Show all code changes](https://github.com/jens-duttke/usage-monitor-for-claude/compare/v1.7.0...v1.8.0)
+[Show all code changes](https://github.com/BramscoChill/auto-scheduler-for-claude/compare/v1.7.0...v1.8.0)
 
 ## [1.7.0] - 2026-03-14
 
@@ -280,7 +291,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Usage bars now turn red only when usage passes the time marker (usage ahead of elapsed time), instead of always at 80%
 - **Breaking:** Setting `bar_fg_high` renamed to `bar_fg_warn`
 
-[Show all code changes](https://github.com/jens-duttke/usage-monitor-for-claude/compare/v1.6.0...v1.7.0)
+[Show all code changes](https://github.com/BramscoChill/auto-scheduler-for-claude/compare/v1.6.0...v1.7.0)
 
 ## [1.6.0] - 2026-03-10
 
@@ -293,7 +304,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Popup sections could appear in wrong order when usage data was not yet available at startup
 
-[Show all code changes](https://github.com/jens-duttke/usage-monitor-for-claude/compare/v1.5.0...v1.6.0)
+[Show all code changes](https://github.com/BramscoChill/auto-scheduler-for-claude/compare/v1.5.0...v1.6.0)
 
 ## [1.5.0] - 2026-03-08
 
@@ -305,7 +316,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Notification when `claude update` installs a newer CLI version
 - Clickable changelog link in the Claude Code section of the detail popup, opening the official Claude Code changelog on GitHub
 - User-configurable `max_backoff` setting to cap rate-limit backoff duration (default 15 minutes)
-- Terminal logging when running via `python -m usage_monitor_for_claude` - shows API calls, skip reasons, and results (silent in EXE builds)
+- Terminal logging when running via `python -m auto_scheduler_for_claude` - shows API calls, skip reasons, and results (silent in EXE builds)
 
 ### Changed
 
@@ -325,7 +336,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Clicking the tray icon while the popup is open no longer causes the popup to briefly close and immediately reopen
 - Fixed double separator line in the popup when usage data is unavailable (e.g. API error on startup)
 
-[Show all code changes](https://github.com/jens-duttke/usage-monitor-for-claude/compare/v1.4.0...v1.5.0)
+[Show all code changes](https://github.com/BramscoChill/auto-scheduler-for-claude/compare/v1.4.0...v1.5.0)
 
 ## [1.4.0] - 2026-03-05
 
@@ -338,7 +349,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - API requests could be permanently rejected (HTTP 429) due to endpoint restrictions on the server side
 
-[Show all code changes](https://github.com/jens-duttke/usage-monitor-for-claude/compare/v1.3.0...v1.4.0)
+[Show all code changes](https://github.com/BramscoChill/auto-scheduler-for-claude/compare/v1.3.0...v1.4.0)
 
 ## [1.3.0] - 2026-03-02
 
@@ -355,23 +366,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Popup opens immediately with cached data instead of waiting for the API response; errors are shown in the status line while usage bars remain visible
 - Popup grows away from the taskbar edge regardless of taskbar position (bottom, top, left, or right)
 
-[Show all code changes](https://github.com/jens-duttke/usage-monitor-for-claude/compare/v1.2.0...v1.3.0)
+[Show all code changes](https://github.com/BramscoChill/auto-scheduler-for-claude/compare/v1.2.0...v1.3.0)
 
 ## [1.2.0] - 2026-03-01
 
 ### Added
 
-- Optional settings file (`usage-monitor-settings.json`) to customize polling intervals, popup colors, and icon colors
+- Optional settings file (`auto-scheduler-settings.json`) to customize polling intervals, popup colors, and icon colors
 
 ### Changed
 
-- The code has been split into smaller, focused modules. Running from source now uses `python -m usage_monitor_for_claude`
+- The code has been split into smaller, focused modules. Running from source now uses `python -m auto_scheduler_for_claude`
 
 ### Fixed
 
 - No longer sends repeated API requests after a 401 auth error; polls only re-read the credentials file until the token actually changes
 
-[Show all code changes](https://github.com/jens-duttke/usage-monitor-for-claude/compare/v1.1.0...v1.2.0)
+[Show all code changes](https://github.com/BramscoChill/auto-scheduler-for-claude/compare/v1.1.0...v1.2.0)
 
 ## [1.1.0] - 2026-02-28
 
@@ -391,7 +402,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Updated repository URL in setup instructions
 
-[Show all code changes](https://github.com/jens-duttke/usage-monitor-for-claude/compare/v1.0.0...v1.1.0)
+[Show all code changes](https://github.com/BramscoChill/auto-scheduler-for-claude/compare/v1.0.0...v1.1.0)
 
 ## [1.0.0] - 2026-02-26
 
@@ -407,4 +418,4 @@ Initial release.
 - PyInstaller build tooling (spec file + build script)
 - 10-language i18n support
 
-[Show all code changes](https://github.com/jens-duttke/usage-monitor-for-claude/releases/tag/v1.0.0)
+[Show all code changes](https://github.com/BramscoChill/auto-scheduler-for-claude/releases/tag/v1.0.0)

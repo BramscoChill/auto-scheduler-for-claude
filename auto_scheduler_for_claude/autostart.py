@@ -16,7 +16,7 @@ from .instance_id import config_dir_suffix, effective_config_dir, is_default_con
 __all__ = ['AUTOSTART_REG_KEY', 'AUTOSTART_REG_BASE_NAME', 'is_autostart_enabled', 'set_autostart', 'sync_autostart_path']
 
 AUTOSTART_REG_KEY = r'Software\Microsoft\Windows\CurrentVersion\Run'
-AUTOSTART_REG_BASE_NAME = 'UsageMonitorForClaude'
+AUTOSTART_REG_BASE_NAME = 'AutoSchedulerForClaude'
 
 
 def _autostart_reg_name() -> str:

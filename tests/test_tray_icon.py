@@ -11,11 +11,11 @@ from unittest.mock import MagicMock, call, patch
 
 from PIL import Image, ImageDraw
 
-import usage_monitor_for_claude.tray_icon as tray_icon_mod
+import auto_scheduler_for_claude.tray_icon as tray_icon_mod
 
 
 def setUpModule():
-    # Pin the default icon style so a local usage-monitor-settings.json with
+    # Pin the default icon style so a local auto-scheduler-settings.json with
     # 'icon_style' cannot flip the classic-style rendering tests.
     patcher = patch.object(tray_icon_mod, 'ICON_STYLE', 'number+bars')
     patcher.start()

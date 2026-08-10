@@ -21,8 +21,8 @@ __all__ = ['register_notification_identity']
 
 # Stable per-application identity.  Every instance (one per Claude account)
 # shares it, so notifications group under one name and logo.
-APP_USER_MODEL_ID = 'JensDuttke.UsageMonitorForClaude'
-DISPLAY_NAME = 'Usage Monitor for Claude'
+APP_USER_MODEL_ID = 'BramscoChill.AutoSchedulerForClaude'
+DISPLAY_NAME = 'Auto Scheduler for Claude'
 
 # Neutral branded logo (empty usage bars) shown as the notification icon.
 # A multi-size .ico (16-256 px) so Windows picks a crisp frame for the small

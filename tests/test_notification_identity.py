@@ -9,7 +9,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
-import usage_monitor_for_claude.notification_identity as ni
+import auto_scheduler_for_claude.notification_identity as ni
 
 
 class TestRegisterNotificationIdentity(unittest.TestCase):

@@ -1,5 +1,5 @@
 {
-    "popup_title": "Usage Monitor for Claude",
+    "popup_title": "Auto Scheduler for Claude",
     "menu_show": "Tampilkan penggunaan Claude",
     "tooltip_title": "Penggunaan Claude",
     "account": "AKUN",
@@ -19,6 +19,15 @@
     "test_threshold_7d": "Ambang batas (7-hari)",
     "test_startup": "Mulai",
     "test_double_click": "Klik ganda",
+    "task_queue": "Antrean tugas",
+    "task_state_waiting": "menunggu kuota",
+    "task_state_pending": "menunggu slot kosong",
+    "task_state_running": "berjalan",
+    "task_state_done": "selesai (keluar {code})",
+    "task_state_interrupted": "terputus",
+    "quit_tasks_running_title": "Tugas Masih Berjalan",
+    "quit_tasks_running": "{count} tugas dalam antrean masih berjalan.\n\nYa - keluar sekarang dan hentikan tugas yang berjalan\nTidak - tunggu sampai selesai, lalu keluar\nBatal - tetap berjalan",
+    "tooltip_draining": "Menyelesaikan tugas, lalu keluar...",
     "resets_in": "Reset dalam {duration} ({clock})",
     "resets_tomorrow": "Reset besok, {clock}",
     "resets_weekday": "Reset {day}, {clock}",
@@ -35,8 +44,8 @@
         "Sab",
         "Min"
     ],
-    "loading": "Usage Monitor: Memuat...",
-    "error_label": "Usage Monitor: Error",
+    "loading": "Auto Scheduler: Memuat...",
+    "error_label": "Auto Scheduler: Error",
     "connection_error": "Tidak dapat terhubung ke API Anthropic.",
     "http_error": "Permintaan API gagal (HTTP {code}).",
     "auth_expired": "Sesi berakhir - silakan buka Claude Code untuk login kembali.",
@@ -67,6 +76,6 @@
     "status_updated_s": "Diperbarui {s}d lalu",
     "status_next_update": "Pembaruan berik.: {duration}",
     "status_refreshing": "Memperbarui...",
-    "already_running": "Usage Monitor for Claude v{running_version} sudah berjalan.\n\nApakah Anda ingin mengganti instans yang sedang berjalan?",
+    "already_running": "Auto Scheduler for Claude v{running_version} sudah berjalan.\n\nApakah Anda ingin mengganti instans yang sedang berjalan?",
     "replace_failed": "Instans yang sedang berjalan tidak dapat digantikan.\n\nSilakan tutup secara manual lalu coba lagi."
 }

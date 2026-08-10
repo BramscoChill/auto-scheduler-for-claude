@@ -5,7 +5,7 @@
     the real locale/*.json files):
         python -m http.server 8080
 
-    Then open: http://localhost:8080/usage_monitor_for_claude/popup/dev.html
+    Then open: http://localhost:8080/auto_scheduler_for_claude/popup/dev.html
 -->
 <!DOCTYPE html>
 <html>
@@ -214,7 +214,7 @@ function resolveData(name, loc) {
 }
 
 // Try both layouts: server rooted at the repo (dev.html under
-// /usage_monitor_for_claude/popup/) and at the package (dev.html under /popup/).
+// /auto_scheduler_for_claude/popup/) and at the package (dev.html under /popup/).
 async function loadLocale(code) {
     // Cache-buster so edits to the locale files show up without a hard reload.
     const bust = `?t=${Date.now()}`;

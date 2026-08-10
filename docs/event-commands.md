@@ -4,7 +4,7 @@ Run a custom shell command when a quota resets, a usage threshold is crossed, th
 
 ## Settings
 
-Add these keys to your [`usage-monitor-settings.json`](configuration.md). After saving, use the **Restart** option in the tray context menu to apply the changes.
+Add these keys to your [`auto-scheduler-settings.json`](configuration.md). After saving, use the **Restart** option in the tray context menu to apply the changes.
 
 | Key | Default | Description |
 |-----|---------|-------------|
@@ -32,21 +32,21 @@ When `on_reset_command` is configured, the app briefly wakes from idle/lock paus
 > ```
 
 > [!TIP]
-> Use the **Test event commands** submenu in the tray context menu to fire your configured commands with sample data. This lets you verify your command and script setup without waiting for a real event. When triggered from this menu, the command's exit code, stdout, and stderr are printed once it finishes - visible when you run the app from source (`python -m usage_monitor_for_claude`) or from the console `--verbose` attaches to the packaged EXE. If the command exits with a non-zero (error) code, its stderr is also shown in an error dialog, so a wrong path or a command that otherwise fails silently is easy to spot (event commands normally discard all output).
+> Use the **Test event commands** submenu in the tray context menu to fire your configured commands with sample data. This lets you verify your command and script setup without waiting for a real event. When triggered from this menu, the command's exit code, stdout, and stderr are printed once it finishes - visible when you run the app from source (`python -m auto_scheduler_for_claude`) or from the console `--verbose` attaches to the packaged EXE. If the command exits with a non-zero (error) code, its stderr is also shown in an error dialog, so a wrong path or a command that otherwise fails silently is easy to spot (event commands normally discard all output).
 
 ## Examples
 
 ### Launch Agent Monitor for Claude on double-click
 
-Usage Monitor for Claude tells you *how much* of your rate limits you have left. Its companion tool, [**Agent Monitor for Claude**](https://github.com/jens-duttke/agent-monitor-for-claude), tells you *what your agents are actually doing* - a live overview of every running Claude Code agent across all your projects: which ones are working, waiting for your input, blocked, finished, or errored, refreshed every few seconds. Agents are grouped by project with the ones that need attention floated to the top, each with its estimated cost, token breakdown, model, and host - and one click brings any agent's window to the foreground. If you run more than one agent at a time, it turns "which window was that again?" into a glance at the tray.
+Auto Scheduler for Claude tells you *how much* of your rate limits you have left. Its companion tool, [**Agent Monitor for Claude**](https://github.com/jens-duttke/agent-monitor-for-claude), tells you *what your agents are actually doing* - a live overview of every running Claude Code agent across all your projects: which ones are working, waiting for your input, blocked, finished, or errored, refreshed every few seconds. Agents are grouped by project with the ones that need attention floated to the top, each with its estimated cost, token breakdown, model, and host - and one click brings any agent's window to the foreground. If you run more than one agent at a time, it turns "which window was that again?" into a glance at the tray.
 
 It is a single portable Windows EXE with zero configuration - it auto-detects your Claude config directory just like this app does. That makes it a natural double-click target, so the icon you already watch for your limits becomes the shortcut to your agents.
 
 **Setup:**
 
 1. Download `AgentMonitorForClaude.exe` from the [latest release](https://github.com/jens-duttke/agent-monitor-for-claude/releases/latest).
-2. Place it in the **same folder** as `UsageMonitorForClaude.exe`. Relative paths in event commands resolve against that folder, so no full path is needed.
-3. Add the setting and restart Usage Monitor for Claude via the tray context menu:
+2. Place it in the **same folder** as `AutoSchedulerForClaude.exe`. Relative paths in event commands resolve against that folder, so no full path is needed.
+3. Add the setting and restart Auto Scheduler for Claude via the tray context menu:
 
 ```json
 {
@@ -75,11 +75,11 @@ Start the 5-hour session immediately at app launch instead of waiting for your f
 
 ```json
 {
-  "on_startup_command": "if not defined USAGE_MONITOR_RESETS_AT_FIVE_HOUR claude -p \"ok\" --tools \"\" --no-session-persistence --system-prompt \"Reply with only: ok\" --output-format text"
+  "on_startup_command": "if not defined AUTO_SCHEDULER_RESETS_AT_FIVE_HOUR claude -p \"ok\" --tools \"\" --no-session-persistence --system-prompt \"Reply with only: ok\" --output-format text"
 }
 ```
 
-`USAGE_MONITOR_RESETS_AT_FIVE_HOUR` is empty when no five-hour session is active, so the ping only fires after a reset already happened (e.g. overnight, or while the app was closed).
+`AUTO_SCHEDULER_RESETS_AT_FIVE_HOUR` is empty when no five-hour session is active, so the ping only fires after a reset already happened (e.g. overnight, or while the app was closed).
 
 ### Always keep a 5-hour session running
 
@@ -87,8 +87,8 @@ To cover both cases - the reset happening with the app running, **and** the app 
 
 ```json
 {
-  "on_startup_command": "if not defined USAGE_MONITOR_RESETS_AT_FIVE_HOUR claude -p \"ok\" --tools \"\" --no-session-persistence --system-prompt \"Reply with only: ok\" --output-format text",
-  "on_reset_command": "if \"%USAGE_MONITOR_VARIANT%\"==\"five_hour\" claude -p \"ok\" --tools \"\" --no-session-persistence --system-prompt \"Reply with only: ok\" --output-format text"
+  "on_startup_command": "if not defined AUTO_SCHEDULER_RESETS_AT_FIVE_HOUR claude -p \"ok\" --tools \"\" --no-session-persistence --system-prompt \"Reply with only: ok\" --output-format text",
+  "on_reset_command": "if \"%AUTO_SCHEDULER_VARIANT%\"==\"five_hour\" claude -p \"ok\" --tools \"\" --no-session-persistence --system-prompt \"Reply with only: ok\" --output-format text"
 }
 ```
 
@@ -96,11 +96,11 @@ To cover both cases - the reset happening with the app running, **and** the app 
 
 ### Target a specific quota variant
 
-Use `USAGE_MONITOR_VARIANT` to run a command only when a specific quota resets. This example sends a minimal Claude Code ping the moment the 5-hour session resets, so the next 5-hour session starts immediately instead of waiting for your first real message:
+Use `AUTO_SCHEDULER_VARIANT` to run a command only when a specific quota resets. This example sends a minimal Claude Code ping the moment the 5-hour session resets, so the next 5-hour session starts immediately instead of waiting for your first real message:
 
 ```json
 {
-  "on_reset_command": "if \"%USAGE_MONITOR_VARIANT%\"==\"five_hour\" claude -p \"ok\" --tools \"\" --no-session-persistence --system-prompt \"Reply with only: ok\" --output-format text"
+  "on_reset_command": "if \"%AUTO_SCHEDULER_VARIANT%\"==\"five_hour\" claude -p \"ok\" --tools \"\" --no-session-persistence --system-prompt \"Reply with only: ok\" --output-format text"
 }
 ```
 
@@ -110,7 +110,7 @@ The same pattern works for any variant (`seven_day`, `seven_day_sonnet`, etc.) a
 
 ```json
 {
-  "on_reset_command": "if %USAGE_MONITOR_UTILIZATION_FIVE_HOUR% LSS 80 if %USAGE_MONITOR_UTILIZATION_SEVEN_DAY% LSS 95 claude --continue -p \"Quota is available, resume task\""
+  "on_reset_command": "if %AUTO_SCHEDULER_UTILIZATION_FIVE_HOUR% LSS 80 if %AUTO_SCHEDULER_UTILIZATION_SEVEN_DAY% LSS 95 claude --continue -p \"Quota is available, resume task\""
 }
 ```
 
@@ -120,7 +120,7 @@ The same pattern works for any variant (`seven_day`, `seven_day_sonnet`, etc.) a
 {
   "on_reset_command": [
     "powershell -Command \"(New-Object Media.SoundPlayer 'C:\\Windows\\Media\\notify.wav').PlaySync()\"",
-    "curl -s -d \"token=<APP_TOKEN>&user=<USER_KEY>&title=%USAGE_MONITOR_TITLE%&message=%USAGE_MONITOR_MESSAGE%\" https://api.pushover.net/1/messages.json"
+    "curl -s -d \"token=<APP_TOKEN>&user=<USER_KEY>&title=%AUTO_SCHEDULER_TITLE%&message=%AUTO_SCHEDULER_MESSAGE%\" https://api.pushover.net/1/messages.json"
   ]
 }
 ```
@@ -129,7 +129,7 @@ The same pattern works for any variant (`seven_day`, `seven_day_sonnet`, etc.) a
 
 ```json
 {
-  "on_threshold_command": "curl -s -X POST \"https://api.telegram.org/bot<TOKEN>/sendMessage\" -d chat_id=<ID> -d text=%USAGE_MONITOR_MESSAGE%"
+  "on_threshold_command": "curl -s -X POST \"https://api.telegram.org/bot<TOKEN>/sendMessage\" -d chat_id=<ID> -d text=%AUTO_SCHEDULER_MESSAGE%"
 }
 ```
 
@@ -163,8 +163,8 @@ Different actions depending on quota type and threshold:
 
 ```powershell
 # notify.ps1 - different actions depending on quota type and threshold
-$variant = $env:USAGE_MONITOR_VARIANT
-$threshold = [int]$env:USAGE_MONITOR_THRESHOLD
+$variant = $env:AUTO_SCHEDULER_VARIANT
+$threshold = [int]$env:AUTO_SCHEDULER_THRESHOLD
 
 # Session quota: play a warning sound at 80%, a critical sound at 95%
 if ($variant -eq "five_hour") {
@@ -177,7 +177,7 @@ if ($variant -eq "five_hour") {
 
 # Weekly quota: send a Pushover notification at 95%
 if ($variant -eq "seven_day" -and $threshold -ge 95) {
-    $body = @{ token = "<APP_TOKEN>"; user = "<USER_KEY>"; title = $env:USAGE_MONITOR_TITLE; message = $env:USAGE_MONITOR_MESSAGE }
+    $body = @{ token = "<APP_TOKEN>"; user = "<USER_KEY>"; title = $env:AUTO_SCHEDULER_TITLE; message = $env:AUTO_SCHEDULER_MESSAGE }
     Invoke-WebRequest -Uri "https://api.pushover.net/1/messages.json" -Method POST -Body $body | Out-Null
 }
 ```
@@ -192,7 +192,7 @@ Available in all event commands:
 
 | Variable | Example | Description |
 |---|---|---|
-| `USAGE_MONITOR_VERSION` | `1.13.0` | Running app version |
+| `AUTO_SCHEDULER_VERSION` | `1.13.0` | Running app version |
 
 ### `on_reset_command`
 
@@ -200,17 +200,17 @@ Fires whenever usage drops (not only when nearly exhausted).
 
 | Variable | Example | Description |
 |---|---|---|
-| `USAGE_MONITOR_EVENT` | `reset` | Event type |
-| `USAGE_MONITOR_VARIANT` | `five_hour` or `seven_day` | Which quota reset |
-| `USAGE_MONITOR_UTILIZATION` | `5` | Current usage of the reset quota (integer) |
-| `USAGE_MONITOR_PREV_UTILIZATION` | `98` | Usage before the reset (integer) |
-| `USAGE_MONITOR_UTILIZATION_FIVE_HOUR` | `5` | Current session (5h) usage (integer) |
-| `USAGE_MONITOR_UTILIZATION_SEVEN_DAY` | `42` | Current weekly (7d) usage (integer) |
-| `USAGE_MONITOR_RESETS_AT` | `2025-01-15T18:00:00Z` | When the quota resets next (ISO 8601, UTC) |
-| `USAGE_MONITOR_TITLE` | `Quota Reset` | Notification title (localized) |
-| `USAGE_MONITOR_MESSAGE` | `Your quota has been reset...` | Notification message (localized) |
+| `AUTO_SCHEDULER_EVENT` | `reset` | Event type |
+| `AUTO_SCHEDULER_VARIANT` | `five_hour` or `seven_day` | Which quota reset |
+| `AUTO_SCHEDULER_UTILIZATION` | `5` | Current usage of the reset quota (integer) |
+| `AUTO_SCHEDULER_PREV_UTILIZATION` | `98` | Usage before the reset (integer) |
+| `AUTO_SCHEDULER_UTILIZATION_FIVE_HOUR` | `5` | Current session (5h) usage (integer) |
+| `AUTO_SCHEDULER_UTILIZATION_SEVEN_DAY` | `42` | Current weekly (7d) usage (integer) |
+| `AUTO_SCHEDULER_RESETS_AT` | `2025-01-15T18:00:00Z` | When the quota resets next (ISO 8601, UTC) |
+| `AUTO_SCHEDULER_TITLE` | `Quota Reset` | Notification title (localized) |
+| `AUTO_SCHEDULER_MESSAGE` | `Your quota has been reset...` | Notification message (localized) |
 
-Both quota values are included so your script can check whether you are actually unblocked. For example, the session quota may reset while the weekly quota is still at the limit. Use `USAGE_MONITOR_PREV_UTILIZATION` to filter if you only want to act on significant resets.
+Both quota values are included so your script can check whether you are actually unblocked. For example, the session quota may reset while the weekly quota is still at the limit. Use `AUTO_SCHEDULER_PREV_UTILIZATION` to filter if you only want to act on significant resets.
 
 ### `on_threshold_command`
 
@@ -218,17 +218,17 @@ Fires when usage crosses a configured alert threshold.
 
 | Variable | Example | Description |
 |---|---|---|
-| `USAGE_MONITOR_EVENT` | `threshold` | Event type |
-| `USAGE_MONITOR_VARIANT` | `five_hour`, `seven_day`, `seven_day_sonnet`, `seven_day_opus`, `extra_usage` | Which quota is affected |
-| `USAGE_MONITOR_UTILIZATION` | `84` | Current usage percentage (integer) |
-| `USAGE_MONITOR_THRESHOLD` | `80` | Threshold that was crossed (integer) |
-| `USAGE_MONITOR_RESETS_AT` | `2025-01-15T18:00:00Z` | When the quota resets (ISO 8601, UTC) |
-| `USAGE_MONITOR_TITLE` | `Usage Alert` | Notification title (localized) |
-| `USAGE_MONITOR_MESSAGE` | `Your session usage has reached 84%` | Notification message (localized) |
-| `USAGE_MONITOR_EXTRA_USED` | `$8.20` | Amount spent (extra usage only) |
-| `USAGE_MONITOR_EXTRA_LIMIT` | `$10.00` | Monthly limit (extra usage only) |
+| `AUTO_SCHEDULER_EVENT` | `threshold` | Event type |
+| `AUTO_SCHEDULER_VARIANT` | `five_hour`, `seven_day`, `seven_day_sonnet`, `seven_day_opus`, `extra_usage` | Which quota is affected |
+| `AUTO_SCHEDULER_UTILIZATION` | `84` | Current usage percentage (integer) |
+| `AUTO_SCHEDULER_THRESHOLD` | `80` | Threshold that was crossed (integer) |
+| `AUTO_SCHEDULER_RESETS_AT` | `2025-01-15T18:00:00Z` | When the quota resets (ISO 8601, UTC) |
+| `AUTO_SCHEDULER_TITLE` | `Usage Alert` | Notification title (localized) |
+| `AUTO_SCHEDULER_MESSAGE` | `Your session usage has reached 84%` | Notification message (localized) |
+| `AUTO_SCHEDULER_EXTRA_USED` | `$8.20` | Amount spent (extra usage only) |
+| `AUTO_SCHEDULER_EXTRA_LIMIT` | `$10.00` | Monthly limit (extra usage only) |
 
-`USAGE_MONITOR_EXTRA_USED` and `USAGE_MONITOR_EXTRA_LIMIT` are only set when `USAGE_MONITOR_VARIANT` is `extra_usage`.
+`AUTO_SCHEDULER_EXTRA_USED` and `AUTO_SCHEDULER_EXTRA_LIMIT` are only set when `AUTO_SCHEDULER_VARIANT` is `extra_usage`.
 
 ### `on_startup_command`
 
@@ -236,15 +236,15 @@ Fires once after the first successful API update following app start (also after
 
 | Variable | Example | Description |
 |---|---|---|
-| `USAGE_MONITOR_EVENT` | `startup` | Event type |
-| `USAGE_MONITOR_UTILIZATION_FIVE_HOUR` | `0` | Current session (5h) usage (integer) |
-| `USAGE_MONITOR_RESETS_AT_FIVE_HOUR` | `2025-01-15T18:00:00Z` | When the 5h session resets, or empty if no session is active |
-| `USAGE_MONITOR_UTILIZATION_SEVEN_DAY` | `42` | Current weekly (7d) usage (integer) |
-| `USAGE_MONITOR_RESETS_AT_SEVEN_DAY` | `2025-01-20T12:00:00Z` | When the 7d window resets, or empty if no window is active |
-| `USAGE_MONITOR_EXTRA_USED` | `$8.20` | Amount spent (only set when extra usage is enabled) |
-| `USAGE_MONITOR_EXTRA_LIMIT` | `$10.00` | Monthly limit (only set when extra usage is enabled) |
+| `AUTO_SCHEDULER_EVENT` | `startup` | Event type |
+| `AUTO_SCHEDULER_UTILIZATION_FIVE_HOUR` | `0` | Current session (5h) usage (integer) |
+| `AUTO_SCHEDULER_RESETS_AT_FIVE_HOUR` | `2025-01-15T18:00:00Z` | When the 5h session resets, or empty if no session is active |
+| `AUTO_SCHEDULER_UTILIZATION_SEVEN_DAY` | `42` | Current weekly (7d) usage (integer) |
+| `AUTO_SCHEDULER_RESETS_AT_SEVEN_DAY` | `2025-01-20T12:00:00Z` | When the 7d window resets, or empty if no window is active |
+| `AUTO_SCHEDULER_EXTRA_USED` | `$8.20` | Amount spent (only set when extra usage is enabled) |
+| `AUTO_SCHEDULER_EXTRA_LIMIT` | `$10.00` | Monthly limit (only set when extra usage is enabled) |
 
-Per-quota variables are emitted for every quota field the API returns - additional variants like `USAGE_MONITOR_UTILIZATION_SEVEN_DAY_SONNET` follow the same pattern. An empty `USAGE_MONITOR_RESETS_AT_*` indicates that the quota has no active window (either never used, or the previous window has expired).
+Per-quota variables are emitted for every quota field the API returns - additional variants like `AUTO_SCHEDULER_UTILIZATION_SEVEN_DAY_SONNET` follow the same pattern. An empty `AUTO_SCHEDULER_RESETS_AT_*` indicates that the quota has no active window (either never used, or the previous window has expired).
 
 ### `on_double_click_command`
 
@@ -252,12 +252,23 @@ Fires when you double-click the tray icon. Receives the same full quota state as
 
 | Variable | Example | Description |
 |---|---|---|
-| `USAGE_MONITOR_EVENT` | `double_click` | Event type |
-| `USAGE_MONITOR_UTILIZATION_FIVE_HOUR` | `0` | Current session (5h) usage (integer) |
-| `USAGE_MONITOR_RESETS_AT_FIVE_HOUR` | `2025-01-15T18:00:00Z` | When the 5h session resets, or empty if no session is active |
-| `USAGE_MONITOR_UTILIZATION_SEVEN_DAY` | `42` | Current weekly (7d) usage (integer) |
-| `USAGE_MONITOR_RESETS_AT_SEVEN_DAY` | `2025-01-20T12:00:00Z` | When the 7d window resets, or empty if no window is active |
-| `USAGE_MONITOR_EXTRA_USED` | `$8.20` | Amount spent (only set when extra usage is enabled) |
-| `USAGE_MONITOR_EXTRA_LIMIT` | `$10.00` | Monthly limit (only set when extra usage is enabled) |
+| `AUTO_SCHEDULER_EVENT` | `double_click` | Event type |
+| `AUTO_SCHEDULER_UTILIZATION_FIVE_HOUR` | `0` | Current session (5h) usage (integer) |
+| `AUTO_SCHEDULER_RESETS_AT_FIVE_HOUR` | `2025-01-15T18:00:00Z` | When the 5h session resets, or empty if no session is active |
+| `AUTO_SCHEDULER_UTILIZATION_SEVEN_DAY` | `42` | Current weekly (7d) usage (integer) |
+| `AUTO_SCHEDULER_RESETS_AT_SEVEN_DAY` | `2025-01-20T12:00:00Z` | When the 7d window resets, or empty if no window is active |
+| `AUTO_SCHEDULER_EXTRA_USED` | `$8.20` | Amount spent (only set when extra usage is enabled) |
+| `AUTO_SCHEDULER_EXTRA_LIMIT` | `$10.00` | Monthly limit (only set when extra usage is enabled) |
 
-Per-quota variables are emitted for every quota field the API returns, following the same pattern as `on_startup_command`. If you double-click before the first successful update, only `USAGE_MONITOR_EVENT` is set.
+Per-quota variables are emitted for every quota field the API returns, following the same pattern as `on_startup_command`. If you double-click before the first successful update, only `AUTO_SCHEDULER_EVENT` is set.
+
+### Queued tasks
+
+Queued tasks are not event commands - they run the Claude Code CLI directly, not a shell command of your choosing - but they receive the same quota snapshot, so a prompt can inspect the state it was started with. See [Task Queue](task-queue.md).
+
+| Variable | Example | Description |
+|---|---|---|
+| `AUTO_SCHEDULER_EVENT` | `task` | Event type |
+| `AUTO_SCHEDULER_TASK_ID` | `daily` | The `id` of the task being run |
+
+Plus the full per-quota snapshot described above.

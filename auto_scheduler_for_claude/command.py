@@ -35,7 +35,7 @@ def run_event_command(commands: list[str], env_vars: dict[str, str], capture_out
     commands : list[str]
         Shell command strings to execute.
     env_vars : dict[str, str]
-        Mapping of ``USAGE_MONITOR_*`` environment variable names to
+        Mapping of ``AUTO_SCHEDULER_*`` environment variable names to
         their values.  Merged into the current process environment.
     capture_output : bool
         When True, capture each command's stdout, stderr, and exit code and
@@ -50,7 +50,7 @@ def run_event_command(commands: list[str], env_vars: dict[str, str], capture_out
     if not commands:
         return
 
-    env = {**os.environ, 'USAGE_MONITOR_VERSION': __version__, **env_vars}
+    env = {**os.environ, 'AUTO_SCHEDULER_VERSION': __version__, **env_vars}
 
     # Pin working directory to the executable's folder so that relative paths
     # in commands resolve predictably - even when Windows autostart sets the
@@ -110,4 +110,4 @@ def _show_error_box(command: str, returncode: int, stderr: str) -> None:
     """Show an error message box reporting a failed command and its stderr."""
     detail = stderr.strip() or '(no error output on stderr)'
     message = f'The event command exited with code {returncode}:\n\n{command}\n\n{detail}'
-    ctypes.windll.user32.MessageBoxW(0, message[:2000], 'Usage Monitor for Claude - Event Command Failed', 0x10)
+    ctypes.windll.user32.MessageBoxW(0, message[:2000], 'Auto Scheduler for Claude - Event Command Failed', 0x10)

@@ -11,7 +11,7 @@ Work through the steps **sequentially**. Respect the project git rule: **never c
 
 Set the new version in **both** places (all fields must match exactly):
 
-- `usage_monitor_for_claude/__init__.py` - `__version__`
+- `auto_scheduler_for_claude/__init__.py` - `__version__`
 - `version_info.py` - all four fields: `filevers`, `prodvers`, `FileVersion`, `ProductVersion`
 
 `filevers`/`prodvers` are tuples (e.g. `(1, 21, 0, 0)`); `FileVersion`/`ProductVersion` are strings (e.g. `'1.21.0.0'`). Read both files first to match their existing shape, then edit.
@@ -36,13 +36,13 @@ The release publishes a tag, which the git rule forbids this command from doing.
 
 - The notes must use the **exact** content from the new version's `CHANGELOG.md` section (the `### Added` / `### Changed` / `### Fixed` / `### Removed` blocks), followed by:
   - a `[Full changelog](<compare-url>)` link, and
-  - a `[README for this version](https://github.com/jens-duttke/usage-monitor-for-claude/blob/vX.Y.Z/README.md)` link.
-- The build artifact `dist/UsageMonitorForClaude.exe` is produced by the user's build step - note it as a prerequisite; do not attempt to build it here.
+  - a `[README for this version](https://github.com/BramscoChill/auto-scheduler-for-claude/blob/vX.Y.Z/README.md)` link.
+- The build artifact `dist/AutoSchedulerForClaude.exe` is produced by the user's build step - note it as a prerequisite; do not attempt to build it here.
 
 Present the command in this shape (filled in with the real version and notes):
 
 ```
-gh release create vX.Y.Z dist/UsageMonitorForClaude.exe --title "vX.Y.Z" --notes "<changelog section + links>"
+gh release create vX.Y.Z dist/AutoSchedulerForClaude.exe --title "vX.Y.Z" --notes "<changelog section + links>"
 ```
 
 ## Summary

@@ -1,5 +1,5 @@
 {
-    "popup_title": "Usage Monitor for Claude",
+    "popup_title": "Auto Scheduler for Claude",
     "menu_show": "Показати використання Claude",
     "tooltip_title": "Використання Claude",
     "account": "АКАУНТ",
@@ -19,6 +19,15 @@
     "test_threshold_7d": "Поріг (7-днів)",
     "test_startup": "Запуск",
     "test_double_click": "Подвійний клік",
+    "task_queue": "Черга завдань",
+    "task_state_waiting": "очікує на квоту",
+    "task_state_pending": "очікує на вільний слот",
+    "task_state_running": "виконується",
+    "task_state_done": "завершено (код {code})",
+    "task_state_interrupted": "перервано",
+    "quit_tasks_running_title": "Завдання ще виконуються",
+    "quit_tasks_running": "{count} завдання з черги ще виконуються.\n\nТак - вийти зараз і зупинити виконувані завдання\nНі - зачекати на завершення, а потім вийти\nСкасувати - продовжити роботу",
+    "tooltip_draining": "Завершення завдань, потім вихід...",
     "resets_in": "Скидання через {duration} ({clock})",
     "resets_tomorrow": "Скидання завтра, {clock}",
     "resets_weekday": "Скидання в {day}, {clock}",
@@ -35,8 +44,8 @@
         "Сб",
         "Нд"
     ],
-    "loading": "Usage Monitor: Завантаження...",
-    "error_label": "Usage Monitor: Помилка",
+    "loading": "Auto Scheduler: Завантаження...",
+    "error_label": "Auto Scheduler: Помилка",
     "connection_error": "Не вдалося підключитися до Anthropic API.",
     "http_error": "Запит до API не вдався (HTTP {code}).",
     "auth_expired": "Сесія завершилася - будь ласка, відкрийте Claude Code, щоб увійти знову.",
@@ -67,6 +76,6 @@
     "status_updated_s": "Оновлено {s}с тому",
     "status_next_update": "Наст. оновл.: {duration}",
     "status_refreshing": "Оновлення...",
-    "already_running": "Usage Monitor for Claude v{running_version} вже запущено.\n\nБажаєте замінити запущений екземпляр?",
+    "already_running": "Auto Scheduler for Claude v{running_version} вже запущено.\n\nБажаєте замінити запущений екземпляр?",
     "replace_failed": "Не вдалося замінити запущений екземпляр.\n\nЗакрийте його вручну та спробуйте ще раз."
 }

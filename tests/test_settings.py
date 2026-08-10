@@ -12,12 +12,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
-import usage_monitor_for_claude.settings as settings_mod
+import auto_scheduler_for_claude.settings as settings_mod
 
 
 def _load(app_dir: Path, home_dir: Path) -> dict:
     """Call _load_settings with controlled app_dir and home_dir."""
-    fake_file = str(app_dir / 'usage_monitor_for_claude' / 'settings.py')
+    fake_file = str(app_dir / 'auto_scheduler_for_claude' / 'settings.py')
     with patch.object(settings_mod, '__file__', fake_file), \
          patch.object(Path, 'home', return_value=home_dir), \
          patch.object(settings_mod, 'ctypes', MagicMock()):
@@ -57,7 +57,7 @@ class TestLoadSettings(unittest.TestCase):
             config_dir = Path(config_tmp)
             settings = {'bg': '#111111'}
             (config_dir / settings_mod.SETTINGS_FILENAME).write_text(json.dumps(settings), encoding='utf-8')
-            fake_file = str(Path(app_tmp) / 'usage_monitor_for_claude' / 'settings.py')
+            fake_file = str(Path(app_tmp) / 'auto_scheduler_for_claude' / 'settings.py')
             with patch.object(settings_mod, '__file__', fake_file), \
                  patch.dict('os.environ', {'CLAUDE_CONFIG_DIR': config_tmp}), \
                  patch.object(settings_mod, 'ctypes', MagicMock()):
@@ -71,7 +71,7 @@ class TestLoadSettings(unittest.TestCase):
             claude_dir.mkdir()
             settings = {'bg': '#222222'}
             (claude_dir / settings_mod.SETTINGS_FILENAME).write_text(json.dumps(settings), encoding='utf-8')
-            fake_file = str(Path(app_tmp) / 'usage_monitor_for_claude' / 'settings.py')
+            fake_file = str(Path(app_tmp) / 'auto_scheduler_for_claude' / 'settings.py')
             with patch.object(settings_mod, '__file__', fake_file), \
                  patch.object(Path, 'home', return_value=Path(home_tmp)), \
                  patch.dict('os.environ', {'CLAUDE_CONFIG_DIR': config_tmp}), \
@@ -86,7 +86,7 @@ class TestLoadSettings(unittest.TestCase):
             claude_dir.mkdir()
             (claude_dir / settings_mod.SETTINGS_FILENAME).write_text(json.dumps({'bg': '#home'}), encoding='utf-8')
             (Path(config_tmp) / settings_mod.SETTINGS_FILENAME).write_text(json.dumps({'bg': '#custom'}), encoding='utf-8')
-            fake_file = str(Path(app_tmp) / 'usage_monitor_for_claude' / 'settings.py')
+            fake_file = str(Path(app_tmp) / 'auto_scheduler_for_claude' / 'settings.py')
             with patch.object(settings_mod, '__file__', fake_file), \
                  patch.object(Path, 'home', return_value=Path(home_tmp)), \
                  patch.dict('os.environ', {'CLAUDE_CONFIG_DIR': config_tmp}), \
@@ -101,7 +101,7 @@ class TestLoadSettings(unittest.TestCase):
             claude_dir.mkdir()
             settings = {'bg': '#333333'}
             (claude_dir / settings_mod.SETTINGS_FILENAME).write_text(json.dumps(settings), encoding='utf-8')
-            fake_file = str(Path(app_tmp) / 'usage_monitor_for_claude' / 'settings.py')
+            fake_file = str(Path(app_tmp) / 'auto_scheduler_for_claude' / 'settings.py')
             with patch.object(settings_mod, '__file__', fake_file), \
                  patch.object(Path, 'home', return_value=Path(home_tmp)), \
                  patch.dict('os.environ', {'CLAUDE_CONFIG_DIR': str(claude_dir)}), \
@@ -114,7 +114,7 @@ class TestLoadSettings(unittest.TestCase):
         with TemporaryDirectory() as app_tmp, TemporaryDirectory() as config_tmp:
             (Path(app_tmp) / settings_mod.SETTINGS_FILENAME).write_text(json.dumps({'bg': '#app'}), encoding='utf-8')
             (Path(config_tmp) / settings_mod.SETTINGS_FILENAME).write_text(json.dumps({'bg': '#custom'}), encoding='utf-8')
-            fake_file = str(Path(app_tmp) / 'usage_monitor_for_claude' / 'settings.py')
+            fake_file = str(Path(app_tmp) / 'auto_scheduler_for_claude' / 'settings.py')
             with patch.object(settings_mod, '__file__', fake_file), \
                  patch.dict('os.environ', {'CLAUDE_CONFIG_DIR': config_tmp}), \
                  patch.object(settings_mod, 'ctypes', MagicMock()):
@@ -178,7 +178,7 @@ class TestLoadSettings(unittest.TestCase):
         """Malformed JSON triggers a Windows MessageBox."""
         with TemporaryDirectory() as app_tmp, TemporaryDirectory() as home_tmp:
             (Path(app_tmp) / settings_mod.SETTINGS_FILENAME).write_text('{broken', encoding='utf-8')
-            fake_file = str(Path(app_tmp) / 'usage_monitor_for_claude' / 'settings.py')
+            fake_file = str(Path(app_tmp) / 'auto_scheduler_for_claude' / 'settings.py')
             mock_ctypes = MagicMock()
             with patch.object(settings_mod, '__file__', fake_file), \
                  patch.object(Path, 'home', return_value=Path(home_tmp)), \
@@ -203,7 +203,7 @@ class TestLoadSettings(unittest.TestCase):
     def test_unreadable_file_returns_empty_dict(self):
         """File that cannot be read returns empty dict."""
         with TemporaryDirectory() as app_tmp, TemporaryDirectory() as home_tmp:
-            fake_file = str(Path(app_tmp) / 'usage_monitor_for_claude' / 'settings.py')
+            fake_file = str(Path(app_tmp) / 'auto_scheduler_for_claude' / 'settings.py')
             with patch.object(settings_mod, '__file__', fake_file), \
                  patch.object(Path, 'home', return_value=Path(home_tmp)), \
                  patch.object(settings_mod, 'ctypes', MagicMock()), \
@@ -229,7 +229,7 @@ class TestLoadSettings(unittest.TestCase):
         with TemporaryDirectory() as app_tmp, TemporaryDirectory() as home_tmp:
             settings = {'poll_interval': 'not_a_number', 'poll_fast': 30}
             (Path(app_tmp) / settings_mod.SETTINGS_FILENAME).write_text(json.dumps(settings), encoding='utf-8')
-            fake_file = str(Path(app_tmp) / 'usage_monitor_for_claude' / 'settings.py')
+            fake_file = str(Path(app_tmp) / 'auto_scheduler_for_claude' / 'settings.py')
             mock_ctypes = MagicMock()
             with patch.object(settings_mod, '__file__', fake_file), \
                  patch.object(Path, 'home', return_value=Path(home_tmp)), \
@@ -1325,6 +1325,84 @@ class TestCompactHideDefault(unittest.TestCase):
             (Path(app_tmp) / settings_mod.SETTINGS_FILENAME).write_text(json.dumps(settings), encoding='utf-8')
             loaded = _load(Path(app_tmp), Path(home_tmp))
         self.assertEqual(loaded['compact_hide'], ['account', 'status'])
+
+
+class TestTaskQueueSettingsValidation(unittest.TestCase):
+    """Tests for max_concurrent_tasks and task_command validation."""
+
+    def _run_validate(self, data: dict) -> tuple[dict, MagicMock]:
+        """Run _validate with mocked ctypes and return (result, mock_ctypes)."""
+        mock_ctypes = MagicMock()
+        with patch.object(settings_mod, 'ctypes', mock_ctypes):
+            result = settings_mod._validate(dict(data), Path('/fake/settings.json'))
+        return result, mock_ctypes
+
+    def test_max_concurrent_tasks_valid(self):
+        result, mock = self._run_validate({'max_concurrent_tasks': 3})
+        self.assertEqual(result['max_concurrent_tasks'], 3)
+        mock.windll.user32.MessageBoxW.assert_not_called()
+
+    def test_max_concurrent_tasks_zero_dropped(self):
+        """Zero would mean the queue can never start anything."""
+        result, mock = self._run_validate({'max_concurrent_tasks': 0})
+        self.assertNotIn('max_concurrent_tasks', result)
+        mock.windll.user32.MessageBoxW.assert_called_once()
+
+    def test_max_concurrent_tasks_negative_dropped(self):
+        result, _ = self._run_validate({'max_concurrent_tasks': -1})
+        self.assertNotIn('max_concurrent_tasks', result)
+
+    def test_max_concurrent_tasks_bool_dropped(self):
+        result, _ = self._run_validate({'max_concurrent_tasks': True})
+        self.assertNotIn('max_concurrent_tasks', result)
+
+    def test_max_concurrent_tasks_float_dropped(self):
+        result, _ = self._run_validate({'max_concurrent_tasks': 1.5})
+        self.assertNotIn('max_concurrent_tasks', result)
+
+    def test_task_command_valid(self):
+        result, mock = self._run_validate({'task_command': ['wsl', 'claude']})
+        self.assertEqual(result['task_command'], ['wsl', 'claude'])
+        mock.windll.user32.MessageBoxW.assert_not_called()
+
+    def test_task_command_empty_list_valid(self):
+        """An empty array means "auto-detect the native CLI"."""
+        result, mock = self._run_validate({'task_command': []})
+        self.assertEqual(result['task_command'], [])
+        mock.windll.user32.MessageBoxW.assert_not_called()
+
+    def test_task_command_string_dropped(self):
+        """It is an argv list, not a shell string - splitting it would be a guess."""
+        result, mock = self._run_validate({'task_command': 'wsl claude'})
+        self.assertNotIn('task_command', result)
+        mock.windll.user32.MessageBoxW.assert_called_once()
+
+    def test_task_command_blank_entry_dropped(self):
+        result, mock = self._run_validate({'task_command': ['wsl', '  ']})
+        self.assertNotIn('task_command', result)
+        mock.windll.user32.MessageBoxW.assert_called_once()
+
+    def test_task_command_non_string_entry_dropped(self):
+        result, _ = self._run_validate({'task_command': ['wsl', 5]})
+        self.assertNotIn('task_command', result)
+
+
+class TestTaskQueueSettingsDefaults(unittest.TestCase):
+    """Tests for the task queue setting defaults."""
+
+    def test_max_concurrent_tasks_defaults_to_one(self):
+        self.assertEqual(settings_mod._S.get('max_concurrent_tasks', 1), 1)
+
+    def test_task_command_defaults_to_empty(self):
+        self.assertEqual(settings_mod._S.get('task_command', []), [])
+
+    def test_override_from_settings(self):
+        with TemporaryDirectory() as app_tmp, TemporaryDirectory() as home_tmp:
+            settings = {'max_concurrent_tasks': 2, 'task_command': ['wsl', 'claude']}
+            (Path(app_tmp) / settings_mod.SETTINGS_FILENAME).write_text(json.dumps(settings), encoding='utf-8')
+            loaded = _load(Path(app_tmp), Path(home_tmp))
+        self.assertEqual(loaded['max_concurrent_tasks'], 2)
+        self.assertEqual(loaded['task_command'], ['wsl', 'claude'])
 
 
 if __name__ == '__main__':

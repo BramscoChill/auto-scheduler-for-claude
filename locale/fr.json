@@ -1,5 +1,5 @@
 {
-    "popup_title": "Usage Monitor for Claude",
+    "popup_title": "Auto Scheduler for Claude",
     "menu_show": "Afficher l'utilisation Claude",
     "tooltip_title": "Utilisation Claude",
     "account": "COMPTE",
@@ -19,6 +19,15 @@
     "test_threshold_7d": "Seuil (7 jours)",
     "test_startup": "Démarrage",
     "test_double_click": "Double-clic",
+    "task_queue": "File de tâches",
+    "task_state_waiting": "en attente de quota",
+    "task_state_pending": "en attente d'un emplacement libre",
+    "task_state_running": "en cours",
+    "task_state_done": "terminée (code {code})",
+    "task_state_interrupted": "interrompue",
+    "quit_tasks_running_title": "Tâches encore en cours",
+    "quit_tasks_running": "{count} tâche(s) de la file sont encore en cours.\n\nOui - quitter maintenant et arrêter la ou les tâches en cours\nNon - attendre leur fin, puis quitter\nAnnuler - continuer l'exécution",
+    "tooltip_draining": "Fin des tâches, puis fermeture...",
     "resets_in": "Réinitialisation dans {duration} ({clock})",
     "resets_tomorrow": "Réinitialisation demain, {clock}",
     "resets_weekday": "Réinitialisation {day}, {clock}",
@@ -35,8 +44,8 @@
         "sam",
         "dim"
     ],
-    "loading": "Usage Monitor : Chargement...",
-    "error_label": "Usage Monitor : Erreur",
+    "loading": "Auto Scheduler : Chargement...",
+    "error_label": "Auto Scheduler : Erreur",
     "connection_error": "Impossible de se connecter à l'API Anthropic.",
     "http_error": "Échec de la requête API (HTTP {code}).",
     "auth_expired": "Session expirée - veuillez ouvrir Claude Code pour vous reconnecter.",
@@ -67,6 +76,6 @@
     "status_updated_s": "Mis à jour il y a {s}s",
     "status_next_update": "Prochaine MàJ : {duration}",
     "status_refreshing": "Actualisation...",
-    "already_running": "Usage Monitor for Claude v{running_version} est déjà en cours d'exécution.\n\nVoulez-vous remplacer l'instance en cours ?",
+    "already_running": "Auto Scheduler for Claude v{running_version} est déjà en cours d'exécution.\n\nVoulez-vous remplacer l'instance en cours ?",
     "replace_failed": "L'instance en cours n'a pas pu être remplacée.\n\nVeuillez la fermer manuellement et réessayer."
 }

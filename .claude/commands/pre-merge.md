@@ -71,13 +71,13 @@ The dependency gate below pins the set of leaves to a closed universe. Without t
 
 Every later check in this audit assumes the set of available primitives (network, code execution, filesystem) is closed. New dependencies expand that set in ways the audit cannot fully predict, so they must be ruled out or scrutinized **before** anything else.
 
-- **Default stance: no new dependencies.** Any addition to `requirements.txt`, any new third-party top-level `import`, or any new entry in `usage_monitor_for_claude.spec`'s `hiddenimports`/`datas` is a finding by default. Demand a justification tied directly to the stated PR goal. CLAUDE.md mandates "minimal, well-known dependencies only" - the bar for a new one is high.
+- **Default stance: no new dependencies.** Any addition to `requirements.txt`, any new third-party top-level `import`, or any new entry in `auto_scheduler_for_claude.spec`'s `hiddenimports`/`datas` is a finding by default. Demand a justification tied directly to the stated PR goal. CLAUDE.md mandates "minimal, well-known dependencies only" - the bar for a new one is high.
 - For each new dependency that survives that bar:
   - `WebFetch` the PyPI page: maintainer identity, release history, download counts, last update, signed releases.
   - Inspect the source repository: stars/forks, recent commit cadence, issue tracker activity, who controls the namespace.
   - Recurse into transitive dependencies - they can do networking/exec/filesystem just as effectively as the top-level dep.
   - Look for typosquats and lookalikes (`requests` vs `request`, `urllib3` vs `urlib3`, `Pillow` vs `Pyllow`).
-- Changes to `usage_monitor_for_claude.spec`, `version_info.py`, `.github/workflows/*`, or any CI/build script are **high-risk surfaces in their own right** - a malicious PR can hide payload in build configuration that never appears in the source diff. Verify every line is justified by the stated PR goal.
+- Changes to `auto_scheduler_for_claude.spec`, `version_info.py`, `.github/workflows/*`, or any CI/build script are **high-risk surfaces in their own right** - a malicious PR can hide payload in build configuration that never appears in the source diff. Verify every line is justified by the stated PR goal.
 - The diff must not contain vendored third-party code (a `vendor/` directory, a copy-pasted module from elsewhere). Any such inclusion is a finding.
 
 ### Credential safety
@@ -208,14 +208,14 @@ Place under `## [Unreleased]` in `CHANGELOG.md`, grouped as **Added / Changed / 
 - One bullet per logical change, one sentence.
 - Hyphens for dashes; never em or en dashes.
 - Never mention `CLAUDE.md` changes (invisible to users).
-- If the change implements a Discussion or resolves an Issue, link it in the entry text, e.g. `- [Feature name](https://github.com/jens-duttke/usage-monitor-for-claude/discussions/12) - description`.
+- If the change implements a Discussion or resolves an Issue, link it in the entry text, e.g. `- [Feature name](https://github.com/BramscoChill/auto-scheduler-for-claude/discussions/12) - description`.
 
 ### Contributor credit
 
 If this is a contributor PR (Step 0 captured the GitHub handle) or a contributor-reported bug, append a thanks line:
 
 - Code contribution: `(thanks to [@handle](https://github.com/handle) for the contribution)`
-- Bug report only: `(thanks to [@handle](https://github.com/handle) for reporting [#NN](https://github.com/jens-duttke/usage-monitor-for-claude/issues/NN))`
+- Bug report only: `(thanks to [@handle](https://github.com/handle) for reporting [#NN](https://github.com/BramscoChill/auto-scheduler-for-claude/issues/NN))`
 
 Use the handle captured in Step 0 - never guess.
 

@@ -1,5 +1,5 @@
 """
-Usage Monitor for Claude
+Auto Scheduler for Claude
 =========================
 
 Displays the current Claude.ai usage as a system tray icon.

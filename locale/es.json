@@ -1,5 +1,5 @@
 {
-    "popup_title": "Usage Monitor for Claude",
+    "popup_title": "Auto Scheduler for Claude",
     "menu_show": "Mostrar uso de Claude",
     "tooltip_title": "Uso de Claude",
     "account": "CUENTA",
@@ -19,6 +19,15 @@
     "test_threshold_7d": "Umbral (7 dias)",
     "test_startup": "Inicio",
     "test_double_click": "Doble clic",
+    "task_queue": "Cola de tareas",
+    "task_state_waiting": "esperando cuota",
+    "task_state_pending": "esperando un espacio libre",
+    "task_state_running": "en ejecución",
+    "task_state_done": "finalizada (salida {code})",
+    "task_state_interrupted": "interrumpida",
+    "quit_tasks_running_title": "Tareas aún en ejecución",
+    "quit_tasks_running": "{count} tarea(s) en cola siguen ejecutándose.\n\nSí - salir ahora y detener la(s) tarea(s) en ejecución\nNo - esperar a que terminen y luego salir\nCancelar - seguir ejecutando",
+    "tooltip_draining": "Finalizando tareas y luego saliendo...",
     "resets_in": "Se restablece en {duration} ({clock})",
     "resets_tomorrow": "Se restablece mañana, {clock}",
     "resets_weekday": "Se restablece el {day}, {clock}",
@@ -35,8 +44,8 @@
         "sáb",
         "dom"
     ],
-    "loading": "Usage Monitor: Cargando...",
-    "error_label": "Usage Monitor: Error",
+    "loading": "Auto Scheduler: Cargando...",
+    "error_label": "Auto Scheduler: Error",
     "connection_error": "No se pudo conectar con la API de Anthropic.",
     "http_error": "Error en la solicitud API (HTTP {code}).",
     "auth_expired": "Sesión expirada - abre Claude Code para iniciar sesión de nuevo.",
@@ -67,6 +76,6 @@
     "status_updated_s": "Actualizado hace {s}s",
     "status_next_update": "Próx. actualiz.: {duration}",
     "status_refreshing": "Actualizando...",
-    "already_running": "Usage Monitor for Claude v{running_version} ya se está ejecutando.\n\n¿Desea reemplazar la instancia en ejecución?",
+    "already_running": "Auto Scheduler for Claude v{running_version} ya se está ejecutando.\n\n¿Desea reemplazar la instancia en ejecución?",
     "replace_failed": "No se pudo reemplazar la instancia en ejecución.\n\nCiérrela manualmente e inténtelo de nuevo."
 }

@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import ctypes
 import math
+import os
 import sys
 import threading
 import time
 import traceback
 import webbrowser
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Callable
 
 import pystray  # type: ignore[import-untyped]  # no type stubs available
 
@@ -30,12 +31,14 @@ from .settings import (
     ON_DOUBLE_CLICK_COMMAND, ON_RESET_COMMAND, ON_STARTUP_COMMAND, ON_THRESHOLD_COMMAND,
     POLL_ERROR, POLL_FAST, POLL_FAST_EXTRA, POLL_INTERVAL, get_alert_thresholds,
 )
-from .formatting import elapsed_pct, field_period, format_credits, format_tooltip, parse_field_name, popup_label
+from .formatting import elapsed_pct, field_period, format_credits, format_tooltip, parse_field_name, popup_label, quota_snapshot_env
 from .i18n import T
 from .popup import UsagePopup
+from .task_runner import STATUS_DONE, STATUS_INTERRUPTED, STATUS_PENDING, STATUS_RUNNING, STATUS_WAITING, TaskRunner
+from .tasks import Task
 from .tray_icon import create_icon_image, create_status_image, taskbar_uses_light_theme, watch_theme_change
 
-__all__ = ['UsageMonitorForClaude', 'crash_log']
+__all__ = ['AutoSchedulerForClaude', 'crash_log']
 
 # Seconds after a reset at which to place the confirming poll.  A small buffer
 # absorbs minor timing differences (clocks, caches, server-side propagation).
@@ -46,6 +49,25 @@ RESET_BUFFER = 5
 # optional double-click command.
 WM_LBUTTONUP = 0x0202
 WM_LBUTTONDBLCLK = 0x0203
+
+# MessageBoxW flags and return codes for the quit-with-tasks-running dialog.
+# The Windows button captions are fixed, so the message text has to spell out
+# what Yes, No, and Cancel each do.
+MB_YESNOCANCEL = 0x03
+MB_ICONQUESTION = 0x20
+IDCANCEL = 2
+IDYES = 6
+IDNO = 7
+
+# Tray-menu glyph per task status, so the state is readable at a glance.
+TASK_STATUS_GLYPHS = {
+    STATUS_WAITING: '○',        # hollow circle - five-hour usage still above the threshold
+    STATUS_PENDING: '◔',        # part-filled circle - threshold met, no free slot
+    STATUS_RUNNING: '▶',        # play - a child process is live
+    STATUS_DONE: '✔',           # check - finished
+    STATUS_INTERRUPTED: '⚠',    # warning - the app died mid-run
+}
+TASK_FAILED_GLYPH = '✖'         # cross - finished with a non-zero exit code
 
 
 def _future_iso(**kwargs: float) -> str:
@@ -103,13 +125,14 @@ def _align_to_reset(interval: int, next_reset: float | None) -> tuple[int, bool]
     return interval, False                     # reset still far - keep the normal cadence
 
 
-class UsageMonitorForClaude:
+class AutoSchedulerForClaude:
     """System tray application displaying Claude usage."""
 
     def __init__(self) -> None:
         """Set up the tray icon with context menu and polling state."""
         self.running = True
         self.cache = UsageCache()
+        self.task_runner = TaskRunner(on_drained=self._on_tasks_drained)
 
         # Last raw API response (may contain 'error') - for icon and polling decisions
         self._last_response: dict[str, Any] = {}
@@ -144,7 +167,7 @@ class UsageMonitorForClaude:
         self._tooltip_prefix = '' if is_default_config_dir() else f'[{effective_config_dir().name}] '
 
         self.icon = pystray.Icon(
-            'usage_monitor',
+            'auto_scheduler',
             icon=create_icon_image(0, 0, self._light_taskbar),
             title=self._tooltip_prefix + T['loading'],
             menu=pystray.Menu(
@@ -155,6 +178,7 @@ class UsageMonitorForClaude:
                     checked=lambda item: is_autostart_enabled(),
                     visible=getattr(sys, 'frozen', False),
                 ),
+                pystray.MenuItem(T['task_queue'], self._build_task_menu(), visible=self.task_runner.has_tasks()),
                 pystray.MenuItem(T['test_commands'], pystray.Menu(
                     pystray.MenuItem(T['test_reset_5h'], self.on_test_reset_5h, enabled=bool(ON_RESET_COMMAND)),
                     pystray.MenuItem(T['test_reset_7d'], self.on_test_reset_7d, enabled=bool(ON_RESET_COMMAND)),
@@ -206,73 +230,152 @@ class UsageMonitorForClaude:
 
     def on_test_reset_5h(self, icon: Any = None, item: Any = None) -> None:
         run_event_command(ON_RESET_COMMAND, {
-            'USAGE_MONITOR_EVENT': 'reset',
-            'USAGE_MONITOR_VARIANT': 'five_hour',
-            'USAGE_MONITOR_UTILIZATION': '0',
-            'USAGE_MONITOR_PREV_UTILIZATION': '95',
-            'USAGE_MONITOR_UTILIZATION_FIVE_HOUR': '0',
-            'USAGE_MONITOR_UTILIZATION_SEVEN_DAY': '45',
-            'USAGE_MONITOR_RESETS_AT': _future_iso(hours=5),
-            'USAGE_MONITOR_TITLE': T['notify_reset_title'],
-            'USAGE_MONITOR_MESSAGE': T['notify_reset'],
+            'AUTO_SCHEDULER_EVENT': 'reset',
+            'AUTO_SCHEDULER_VARIANT': 'five_hour',
+            'AUTO_SCHEDULER_UTILIZATION': '0',
+            'AUTO_SCHEDULER_PREV_UTILIZATION': '95',
+            'AUTO_SCHEDULER_UTILIZATION_FIVE_HOUR': '0',
+            'AUTO_SCHEDULER_UTILIZATION_SEVEN_DAY': '45',
+            'AUTO_SCHEDULER_RESETS_AT': _future_iso(hours=5),
+            'AUTO_SCHEDULER_TITLE': T['notify_reset_title'],
+            'AUTO_SCHEDULER_MESSAGE': T['notify_reset'],
         }, capture_output=True)
 
     def on_test_reset_7d(self, icon: Any = None, item: Any = None) -> None:
         run_event_command(ON_RESET_COMMAND, {
-            'USAGE_MONITOR_EVENT': 'reset',
-            'USAGE_MONITOR_VARIANT': 'seven_day',
-            'USAGE_MONITOR_UTILIZATION': '0',
-            'USAGE_MONITOR_PREV_UTILIZATION': '99',
-            'USAGE_MONITOR_UTILIZATION_FIVE_HOUR': '12',
-            'USAGE_MONITOR_UTILIZATION_SEVEN_DAY': '0',
-            'USAGE_MONITOR_RESETS_AT': _future_iso(days=7),
-            'USAGE_MONITOR_TITLE': T['notify_reset_title'],
-            'USAGE_MONITOR_MESSAGE': T['notify_reset'],
+            'AUTO_SCHEDULER_EVENT': 'reset',
+            'AUTO_SCHEDULER_VARIANT': 'seven_day',
+            'AUTO_SCHEDULER_UTILIZATION': '0',
+            'AUTO_SCHEDULER_PREV_UTILIZATION': '99',
+            'AUTO_SCHEDULER_UTILIZATION_FIVE_HOUR': '12',
+            'AUTO_SCHEDULER_UTILIZATION_SEVEN_DAY': '0',
+            'AUTO_SCHEDULER_RESETS_AT': _future_iso(days=7),
+            'AUTO_SCHEDULER_TITLE': T['notify_reset_title'],
+            'AUTO_SCHEDULER_MESSAGE': T['notify_reset'],
         }, capture_output=True)
 
     def on_test_threshold_5h(self, icon: Any = None, item: Any = None) -> None:
         run_event_command(ON_THRESHOLD_COMMAND, {
-            'USAGE_MONITOR_EVENT': 'threshold',
-            'USAGE_MONITOR_VARIANT': 'five_hour',
-            'USAGE_MONITOR_UTILIZATION': '82',
-            'USAGE_MONITOR_THRESHOLD': '80',
-            'USAGE_MONITOR_RESETS_AT': _future_iso(hours=3),
-            'USAGE_MONITOR_TITLE': T['notify_threshold_title'],
-            'USAGE_MONITOR_MESSAGE': T['notify_threshold_generic'].format(label=popup_label('five_hour'), pct='82'),
+            'AUTO_SCHEDULER_EVENT': 'threshold',
+            'AUTO_SCHEDULER_VARIANT': 'five_hour',
+            'AUTO_SCHEDULER_UTILIZATION': '82',
+            'AUTO_SCHEDULER_THRESHOLD': '80',
+            'AUTO_SCHEDULER_RESETS_AT': _future_iso(hours=3),
+            'AUTO_SCHEDULER_TITLE': T['notify_threshold_title'],
+            'AUTO_SCHEDULER_MESSAGE': T['notify_threshold_generic'].format(label=popup_label('five_hour'), pct='82'),
         }, capture_output=True)
 
     def on_test_threshold_7d(self, icon: Any = None, item: Any = None) -> None:
         run_event_command(ON_THRESHOLD_COMMAND, {
-            'USAGE_MONITOR_EVENT': 'threshold',
-            'USAGE_MONITOR_VARIANT': 'seven_day',
-            'USAGE_MONITOR_UTILIZATION': '81',
-            'USAGE_MONITOR_THRESHOLD': '80',
-            'USAGE_MONITOR_RESETS_AT': _future_iso(days=4),
-            'USAGE_MONITOR_TITLE': T['notify_threshold_title'],
-            'USAGE_MONITOR_MESSAGE': T['notify_threshold_generic'].format(label=popup_label('seven_day'), pct='81'),
+            'AUTO_SCHEDULER_EVENT': 'threshold',
+            'AUTO_SCHEDULER_VARIANT': 'seven_day',
+            'AUTO_SCHEDULER_UTILIZATION': '81',
+            'AUTO_SCHEDULER_THRESHOLD': '80',
+            'AUTO_SCHEDULER_RESETS_AT': _future_iso(days=4),
+            'AUTO_SCHEDULER_TITLE': T['notify_threshold_title'],
+            'AUTO_SCHEDULER_MESSAGE': T['notify_threshold_generic'].format(label=popup_label('seven_day'), pct='81'),
         }, capture_output=True)
 
     def on_test_startup(self, icon: Any = None, item: Any = None) -> None:
         run_event_command(ON_STARTUP_COMMAND, {
-            'USAGE_MONITOR_EVENT': 'startup',
-            'USAGE_MONITOR_UTILIZATION_FIVE_HOUR': '0',
-            'USAGE_MONITOR_RESETS_AT_FIVE_HOUR': '',
-            'USAGE_MONITOR_UTILIZATION_SEVEN_DAY': '45',
-            'USAGE_MONITOR_RESETS_AT_SEVEN_DAY': _future_iso(days=3),
+            'AUTO_SCHEDULER_EVENT': 'startup',
+            'AUTO_SCHEDULER_UTILIZATION_FIVE_HOUR': '0',
+            'AUTO_SCHEDULER_RESETS_AT_FIVE_HOUR': '',
+            'AUTO_SCHEDULER_UTILIZATION_SEVEN_DAY': '45',
+            'AUTO_SCHEDULER_RESETS_AT_SEVEN_DAY': _future_iso(days=3),
         }, capture_output=True)
 
     def on_test_double_click(self, icon: Any = None, item: Any = None) -> None:
         run_event_command(ON_DOUBLE_CLICK_COMMAND, {
-            'USAGE_MONITOR_EVENT': 'double_click',
-            'USAGE_MONITOR_UTILIZATION_FIVE_HOUR': '30',
-            'USAGE_MONITOR_RESETS_AT_FIVE_HOUR': _future_iso(hours=3),
-            'USAGE_MONITOR_UTILIZATION_SEVEN_DAY': '55',
-            'USAGE_MONITOR_RESETS_AT_SEVEN_DAY': _future_iso(days=4),
+            'AUTO_SCHEDULER_EVENT': 'double_click',
+            'AUTO_SCHEDULER_UTILIZATION_FIVE_HOUR': '30',
+            'AUTO_SCHEDULER_RESETS_AT_FIVE_HOUR': _future_iso(hours=3),
+            'AUTO_SCHEDULER_UTILIZATION_SEVEN_DAY': '55',
+            'AUTO_SCHEDULER_RESETS_AT_SEVEN_DAY': _future_iso(days=4),
         }, capture_output=True)
 
     def on_quit(self, icon: Any = None, item: Any = None) -> None:
+        """Quit, asking what to do with any task that is still running.
+
+        Windows fixes the Yes/No/Cancel captions, so the message text maps
+        each button to its outcome: kill now, drain, or stay running.
+        """
+        running = self.task_runner.running_count()
+        if running > 0:
+            choice = ctypes.windll.user32.MessageBoxW(
+                0, T['quit_tasks_running'].format(count=running),
+                T['quit_tasks_running_title'], MB_YESNOCANCEL | MB_ICONQUESTION,
+            )
+            if choice == IDCANCEL:
+                self.restart_requested = False
+                return
+
+            if choice == IDNO:
+                # Drain: the last watcher thread calls _on_tasks_drained.
+                self.task_runner.begin_drain()
+                self._render_tray()
+                return
+
+            self.task_runner.kill_all()
+
         self.running = False
         self.icon.stop()
+
+    def _on_tasks_drained(self) -> None:
+        """Finish quitting once the last draining task has ended."""
+        self.running = False
+        self.icon.stop()
+
+    # Task queue menu
+
+    def _build_task_menu(self) -> Any:
+        """Build one static menu item per queued task, with dynamic status text.
+
+        The task *set* is fixed at startup (the registry is read once), so a
+        static item list carries the queue; only each item's text and enabled
+        state are callables, re-evaluated every time the menu opens.
+        """
+        return pystray.Menu(*[
+            pystray.MenuItem(
+                self._task_item_text(task),
+                self._task_item_action(task.id),
+                enabled=self._task_item_enabled(task.id),
+            )
+            for task in self.task_runner.tasks
+        ])
+
+    def _task_item_text(self, task: Task) -> Callable[[Any], str]:
+        """Return a callable rendering one task's menu label and current status."""
+        def render(item: Any = None) -> str:
+            status = self.task_runner.status(task.id)
+            glyph = TASK_STATUS_GLYPHS.get(status, '')
+            if status == STATUS_DONE and self.task_runner.exit_code(task.id):
+                glyph = TASK_FAILED_GLYPH
+            return f'{glyph} {task.description or task.id} - {self._task_status_label(task.id, status)}'
+
+        return render
+
+    def _task_status_label(self, task_id: str, status: str) -> str:
+        """Return the localized status text, with the exit code for finished runs."""
+        if status == STATUS_DONE:
+            return T['task_state_done'].format(code=self.task_runner.exit_code(task_id))
+        return T[f'task_state_{status}']
+
+    def _task_item_enabled(self, task_id: str) -> Callable[[Any], bool]:
+        """Only a run with a log on disk is clickable; the click opens that log."""
+        return lambda item=None: self.task_runner.log_path(task_id) is not None
+
+    def _task_item_action(self, task_id: str) -> Callable[..., None]:
+        def open_log(icon: Any = None, item: Any = None) -> None:
+            log_path = self.task_runner.log_path(task_id)
+            if log_path is None:
+                return
+            try:
+                os.startfile(log_path)
+            except OSError:
+                traceback.print_exc()
+
+        return open_log
 
     # Popup
 
@@ -415,7 +518,10 @@ class UsageMonitorForClaude:
                 time_pct_top=time_pct_top, time_pct_bottom=time_pct_bottom,
                 extra_usage_available=extra_usage_available,
             )
-        self.icon.title = self._tooltip_prefix + format_tooltip(data)
+        title = self._tooltip_prefix + format_tooltip(data)
+        if self.task_runner.is_draining():
+            title += f"\n{T['tooltip_draining']}"
+        self.icon.title = title
 
     def _on_theme_changed(self) -> None:
         """Re-render the tray icon when the Windows theme changes."""
@@ -548,6 +654,11 @@ class UsageMonitorForClaude:
             self._run_startup_command(result.data)
 
         self._first_update_done = True
+
+        # Start whatever the fresh quota snapshot allows.  Reached from the
+        # poll thread and the popup's background refresh, so the runner takes
+        # its own lock around the whole select-and-start sequence.
+        self.task_runner.evaluate(result.data)
 
     # Notifications
 
@@ -701,35 +812,6 @@ class UsageMonitorForClaude:
 
     # Event commands
 
-    def _quota_snapshot_env(self, data: dict[str, Any]) -> dict[str, str]:
-        """Build environment variables describing the current quota state.
-
-        Emits one ``USAGE_MONITOR_UTILIZATION_<FIELD>`` /
-        ``USAGE_MONITOR_RESETS_AT_<FIELD>`` pair per detected quota field, plus
-        ``USAGE_MONITOR_EXTRA_USED`` when paid extra usage is enabled and
-        ``USAGE_MONITOR_EXTRA_LIMIT`` when it also has a monthly limit (an
-        uncapped account has no limit to report).  Shared by the startup and
-        double-click commands.
-        """
-        env_vars: dict[str, str] = {}
-        for key, entry in data.items():
-            if key == 'extra_usage' or not isinstance(entry, dict) or 'utilization' not in entry:
-                continue
-            env_vars[f'USAGE_MONITOR_UTILIZATION_{key.upper()}'] = str(round(entry.get('utilization', 0) or 0))
-            env_vars[f'USAGE_MONITOR_RESETS_AT_{key.upper()}'] = entry.get('resets_at') or ''
-
-        extra = data.get('extra_usage') or {}
-        if extra.get('is_enabled'):
-            limit = extra.get('monthly_limit', 0) or 0
-            used = extra.get('used_credits', 0) or 0
-            currency = extra.get('currency')
-            decimal_places = extra.get('decimal_places')
-            env_vars['USAGE_MONITOR_EXTRA_USED'] = format_credits(used, currency, decimal_places)
-            if limit > 0:
-                env_vars['USAGE_MONITOR_EXTRA_LIMIT'] = format_credits(limit, currency, decimal_places)
-
-        return env_vars
-
     def _run_startup_command(self, data: dict[str, Any]) -> None:
         """Run the user-configured startup command if set.
 
@@ -740,7 +822,7 @@ class UsageMonitorForClaude:
         if not ON_STARTUP_COMMAND:
             return
 
-        env_vars = {'USAGE_MONITOR_EVENT': 'startup', **self._quota_snapshot_env(data)}
+        env_vars = {'AUTO_SCHEDULER_EVENT': 'startup', **quota_snapshot_env(data)}
         run_event_command(ON_STARTUP_COMMAND, env_vars)
 
     def _run_double_click_command(self) -> None:
@@ -756,7 +838,7 @@ class UsageMonitorForClaude:
         if not ON_DOUBLE_CLICK_COMMAND:
             return
 
-        env_vars = {'USAGE_MONITOR_EVENT': 'double_click', **self._quota_snapshot_env(self._last_response)}
+        env_vars = {'AUTO_SCHEDULER_EVENT': 'double_click', **quota_snapshot_env(self._last_response)}
         run_event_command(ON_DOUBLE_CLICK_COMMAND, env_vars, capture_output=True)
 
     def _run_reset_command(
@@ -769,15 +851,15 @@ class UsageMonitorForClaude:
         pct_5h = (data.get('five_hour') or {}).get('utilization', 0) or 0
         pct_7d = (data.get('seven_day') or {}).get('utilization', 0) or 0
         run_event_command(ON_RESET_COMMAND, {
-            'USAGE_MONITOR_EVENT': 'reset',
-            'USAGE_MONITOR_VARIANT': variant,
-            'USAGE_MONITOR_UTILIZATION': str(round(pct)),
-            'USAGE_MONITOR_PREV_UTILIZATION': str(round(prev_pct)),
-            'USAGE_MONITOR_UTILIZATION_FIVE_HOUR': str(round(pct_5h)),
-            'USAGE_MONITOR_UTILIZATION_SEVEN_DAY': str(round(pct_7d)),
-            'USAGE_MONITOR_RESETS_AT': entry.get('resets_at', ''),
-            'USAGE_MONITOR_TITLE': T['notify_reset_title'],
-            'USAGE_MONITOR_MESSAGE': T['notify_reset'],
+            'AUTO_SCHEDULER_EVENT': 'reset',
+            'AUTO_SCHEDULER_VARIANT': variant,
+            'AUTO_SCHEDULER_UTILIZATION': str(round(pct)),
+            'AUTO_SCHEDULER_PREV_UTILIZATION': str(round(prev_pct)),
+            'AUTO_SCHEDULER_UTILIZATION_FIVE_HOUR': str(round(pct_5h)),
+            'AUTO_SCHEDULER_UTILIZATION_SEVEN_DAY': str(round(pct_7d)),
+            'AUTO_SCHEDULER_RESETS_AT': entry.get('resets_at', ''),
+            'AUTO_SCHEDULER_TITLE': T['notify_reset_title'],
+            'AUTO_SCHEDULER_MESSAGE': T['notify_reset'],
         })
 
     def _run_threshold_command(
@@ -793,28 +875,28 @@ class UsageMonitorForClaude:
         not *state*.
 
         ``pct`` is None for spend-amount alerts, which have no utilization
-        percentage; ``USAGE_MONITOR_UTILIZATION`` is omitted from the
+        percentage; ``AUTO_SCHEDULER_UTILIZATION`` is omitted from the
         environment in that case.
         """
         if not ON_THRESHOLD_COMMAND or not self._first_update_done:
             return
 
         env_vars = {
-            'USAGE_MONITOR_EVENT': 'threshold',
-            'USAGE_MONITOR_VARIANT': variant,
+            'AUTO_SCHEDULER_EVENT': 'threshold',
+            'AUTO_SCHEDULER_VARIANT': variant,
         }
         if pct is not None:
-            env_vars['USAGE_MONITOR_UTILIZATION'] = str(round(pct))
+            env_vars['AUTO_SCHEDULER_UTILIZATION'] = str(round(pct))
         env_vars.update({
-            'USAGE_MONITOR_THRESHOLD': str(round(threshold)),
-            'USAGE_MONITOR_RESETS_AT': entry.get('resets_at', ''),
-            'USAGE_MONITOR_TITLE': title,
-            'USAGE_MONITOR_MESSAGE': message,
+            'AUTO_SCHEDULER_THRESHOLD': str(round(threshold)),
+            'AUTO_SCHEDULER_RESETS_AT': entry.get('resets_at', ''),
+            'AUTO_SCHEDULER_TITLE': title,
+            'AUTO_SCHEDULER_MESSAGE': message,
         })
         if extra_used:
-            env_vars['USAGE_MONITOR_EXTRA_USED'] = extra_used
+            env_vars['AUTO_SCHEDULER_EXTRA_USED'] = extra_used
         if extra_limit:
-            env_vars['USAGE_MONITOR_EXTRA_LIMIT'] = extra_limit
+            env_vars['AUTO_SCHEDULER_EXTRA_LIMIT'] = extra_limit
 
         run_event_command(ON_THRESHOLD_COMMAND, env_vars)
 
@@ -1002,8 +1084,12 @@ class UsageMonitorForClaude:
                 if self._deferred_notifications and not self._is_user_away():
                     self._flush_deferred_notifications()
 
-                # Pause polling while the user is away.
-                # Regular polling stops entirely during idle/lock.
+                # Pause polling while the user is away - unless the task queue
+                # still has work.  Draining the queue overnight is the point of
+                # an auto-scheduler, so pending work keeps the normal cadence;
+                # only the pause is skipped.  Interval calculation, reset
+                # alignment, and notification deferral are untouched.
+                # Regular polling otherwise stops entirely during idle/lock.
                 # The only exception: when on_reset_command is configured
                 # and a quota reset is due, the idle pause is interrupted
                 # so the command fires on time.  The flag
@@ -1012,7 +1098,7 @@ class UsageMonitorForClaude:
                 # this covers server-side delays and transient network
                 # errors.  The flag is cleared when update() detects the
                 # drop, or when the user returns (they'll see it anyway).
-                if self._is_user_away():
+                if self._is_user_away() and not self.task_runner.has_pending_work():
                     reset_deadline = None
                     if ON_RESET_COMMAND:
                         next_reset = self._seconds_until_next_reset()
@@ -1074,4 +1160,4 @@ class UsageMonitorForClaude:
 
 def crash_log(msg: str) -> None:
     """Show a crash message box (for windowless EXE builds)."""
-    ctypes.windll.user32.MessageBoxW(0, msg[:2000], 'Usage Monitor for Claude - Error', 0x10)
+    ctypes.windll.user32.MessageBoxW(0, msg[:2000], 'Auto Scheduler for Claude - Error', 0x10)

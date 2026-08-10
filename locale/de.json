@@ -1,5 +1,5 @@
 {
-    "popup_title": "Usage Monitor for Claude",
+    "popup_title": "Auto Scheduler for Claude",
     "menu_show": "Claude-Nutzung anzeigen",
     "tooltip_title": "Claude-Nutzung",
     "account": "KONTO",
@@ -19,6 +19,15 @@
     "test_threshold_7d": "Schwellenwert (7-Tage)",
     "test_startup": "Start",
     "test_double_click": "Doppelklick",
+    "task_queue": "Aufgabenwarteschlange",
+    "task_state_waiting": "wartet auf Kontingent",
+    "task_state_pending": "wartet auf freien Platz",
+    "task_state_running": "läuft",
+    "task_state_done": "fertig (Exit {code})",
+    "task_state_interrupted": "unterbrochen",
+    "quit_tasks_running_title": "Aufgaben laufen noch",
+    "quit_tasks_running": "{count} Aufgabe(n) aus der Warteschlange laufen noch.\n\nJa - jetzt beenden und laufende Aufgabe(n) stoppen\nNein - warten, bis sie fertig sind, dann beenden\nAbbrechen - weiterlaufen lassen",
+    "tooltip_draining": "Aufgaben werden abgeschlossen, dann wird beendet ...",
     "resets_in": "Zurücksetzung in {duration} ({clock})",
     "resets_tomorrow": "Zurücksetzung morgen, {clock}",
     "resets_weekday": "Zurücksetzung am {day}, {clock}",
@@ -35,8 +44,8 @@
         "Sa",
         "So"
     ],
-    "loading": "Usage Monitor: Laden...",
-    "error_label": "Usage Monitor: Fehler",
+    "loading": "Auto Scheduler: Laden...",
+    "error_label": "Auto Scheduler: Fehler",
     "connection_error": "Keine Verbindung zur Anthropic API möglich.",
     "http_error": "API-Anfrage fehlgeschlagen (HTTP {code}).",
     "auth_expired": "Sitzung abgelaufen - bitte Claude Code öffnen, um die Anmeldung zu erneuern.",
@@ -67,6 +76,6 @@
     "status_updated_s": "Aktualisiert vor {s}s",
     "status_next_update": "Nächstes Update in {duration}",
     "status_refreshing": "Aktualisiere...",
-    "already_running": "Usage Monitor for Claude v{running_version} wird bereits ausgeführt.\n\nMöchten Sie die laufende Instanz ersetzen?",
+    "already_running": "Auto Scheduler for Claude v{running_version} wird bereits ausgeführt.\n\nMöchten Sie die laufende Instanz ersetzen?",
     "replace_failed": "Die laufende Instanz konnte nicht ersetzt werden.\n\nBitte beenden Sie sie manuell und versuchen Sie es erneut."
 }

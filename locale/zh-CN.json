@@ -1,5 +1,5 @@
 {
-    "popup_title": "Usage Monitor for Claude",
+    "popup_title": "Auto Scheduler for Claude",
     "menu_show": "显示Claude用量",
     "tooltip_title": "Claude用量",
     "account": "账户",
@@ -19,6 +19,15 @@
     "test_threshold_7d": "阈值 (7天)",
     "test_startup": "启动",
     "test_double_click": "双击",
+    "task_queue": "任务队列",
+    "task_state_waiting": "等待配额",
+    "task_state_pending": "等待空闲槽位",
+    "task_state_running": "运行中",
+    "task_state_done": "已完成（退出码 {code}）",
+    "task_state_interrupted": "已中断",
+    "quit_tasks_running_title": "任务仍在运行",
+    "quit_tasks_running": "队列中有 {count} 个任务仍在运行。\n\n是 - 立即退出并停止正在运行的任务\n否 - 等待任务完成后再退出\n取消 - 继续运行",
+    "tooltip_draining": "正在完成任务，随后退出...",
     "resets_in": "{duration}后重置 ({clock})",
     "resets_tomorrow": "明天重置，{clock}",
     "resets_weekday": "{day}重置，{clock}",
@@ -35,8 +44,8 @@
         "周六",
         "周日"
     ],
-    "loading": "Usage Monitor: 加载中...",
-    "error_label": "Usage Monitor: 错误",
+    "loading": "Auto Scheduler: 加载中...",
+    "error_label": "Auto Scheduler: 错误",
     "connection_error": "无法连接到 Anthropic API。",
     "http_error": "API 请求失败 (HTTP {code})。",
     "auth_expired": "会话已过期 - 请打开 Claude Code 重新登录。",
@@ -67,6 +76,6 @@
     "status_updated_s": "{s}秒前更新",
     "status_next_update": "{duration}后更新",
     "status_refreshing": "刷新中...",
-    "already_running": "Usage Monitor for Claude v{running_version} 已在运行中。\n\n是否要替换正在运行的实例？",
+    "already_running": "Auto Scheduler for Claude v{running_version} 已在运行中。\n\n是否要替换正在运行的实例？",
     "replace_failed": "无法替换正在运行的实例。\n\n请手动关闭后重试。"
 }

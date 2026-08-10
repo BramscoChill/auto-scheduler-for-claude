@@ -20,8 +20,8 @@ from .instance_id import config_dir_suffix
 
 __all__ = ['ensure_single_instance', 'release_instance_lock']
 
-_MUTEX_BASE_NAME = 'UsageMonitorForClaude_SingleInstance'
-_PID_MAPPING_BASE_NAME = 'UsageMonitorForClaude_HolderPID'
+_MUTEX_BASE_NAME = 'AutoSchedulerForClaude_SingleInstance'
+_PID_MAPPING_BASE_NAME = 'AutoSchedulerForClaude_HolderPID'
 _ERROR_ACCESS_DENIED = 0x5
 _ERROR_ALREADY_EXISTS = 0xB7
 _INVALID_HANDLE = ctypes.c_void_p(-1).value

@@ -1,5 +1,5 @@
 {
-    "popup_title": "Usage Monitor for Claude",
+    "popup_title": "Auto Scheduler for Claude",
     "menu_show": "Claude 사용량 보기",
     "tooltip_title": "Claude 사용량",
     "account": "계정",
@@ -19,6 +19,15 @@
     "test_threshold_7d": "임계값 (7일)",
     "test_startup": "시작",
     "test_double_click": "더블 클릭",
+    "task_queue": "작업 대기열",
+    "task_state_waiting": "할당량 대기 중",
+    "task_state_pending": "빈 슬롯 대기 중",
+    "task_state_running": "실행 중",
+    "task_state_done": "완료 (종료 코드 {code})",
+    "task_state_interrupted": "중단됨",
+    "quit_tasks_running_title": "작업이 아직 실행 중입니다",
+    "quit_tasks_running": "대기열의 작업 {count}개가 아직 실행 중입니다.\n\n예 - 지금 종료하고 실행 중인 작업을 중지합니다\n아니요 - 완료될 때까지 기다린 후 종료합니다\n취소 - 종료하지 않습니다",
+    "tooltip_draining": "작업을 완료한 후 종료합니다...",
     "resets_in": "{duration} 후 재설정 ({clock})",
     "resets_tomorrow": "내일 재설정, {clock}",
     "resets_weekday": "{day}에 재설정, {clock}",
@@ -35,8 +44,8 @@
         "토",
         "일"
     ],
-    "loading": "Usage Monitor: 로딩 중...",
-    "error_label": "Usage Monitor: 오류",
+    "loading": "Auto Scheduler: 로딩 중...",
+    "error_label": "Auto Scheduler: 오류",
     "connection_error": "Anthropic API에 연결할 수 없습니다.",
     "http_error": "API 요청 실패 (HTTP {code}).",
     "auth_expired": "세션 만료 - Claude Code를 열어 다시 로그인해 주세요.",
@@ -67,6 +76,6 @@
     "status_updated_s": "{s}초 전에 업데이트됨",
     "status_next_update": "다음 업데이트 {duration} 후",
     "status_refreshing": "새로고침 중...",
-    "already_running": "Usage Monitor for Claude v{running_version}가 실행 중입니다.\n\n실행 중인 인스턴스를 교체하시겠습니까?",
+    "already_running": "Auto Scheduler for Claude v{running_version}가 실행 중입니다.\n\n실행 중인 인스턴스를 교체하시겠습니까?",
     "replace_failed": "실행 중인 인스턴스를 교체할 수 없습니다.\n\n수동으로 종료한 후 다시 시도하세요."
 }

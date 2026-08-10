@@ -1,5 +1,5 @@
 {
-    "popup_title": "Usage Monitor for Claude",
+    "popup_title": "Auto Scheduler for Claude",
     "menu_show": "Mostrar uso do Claude",
     "tooltip_title": "Uso do Claude",
     "account": "CONTA",
@@ -19,6 +19,15 @@
     "test_threshold_7d": "Limite (7 dias)",
     "test_startup": "Inicialização",
     "test_double_click": "Duplo clique",
+    "task_queue": "Fila de tarefas",
+    "task_state_waiting": "aguardando cota",
+    "task_state_pending": "aguardando uma vaga livre",
+    "task_state_running": "em execução",
+    "task_state_done": "concluída (saída {code})",
+    "task_state_interrupted": "interrompida",
+    "quit_tasks_running_title": "Tarefas ainda em execução",
+    "quit_tasks_running": "{count} tarefa(s) da fila ainda estão em execução.\n\nSim - sair agora e parar a(s) tarefa(s) em execução\nNão - aguardar o término e depois sair\nCancelar - continuar em execução",
+    "tooltip_draining": "Concluindo tarefas e depois saindo...",
     "resets_in": "Reinicia em {duration} ({clock})",
     "resets_tomorrow": "Reinicia amanhã, {clock}",
     "resets_weekday": "Reinicia {day}, {clock}",
@@ -35,8 +44,8 @@
         "sáb",
         "dom"
     ],
-    "loading": "Usage Monitor: Carregando...",
-    "error_label": "Usage Monitor: Erro",
+    "loading": "Auto Scheduler: Carregando...",
+    "error_label": "Auto Scheduler: Erro",
     "connection_error": "Não foi possível conectar à API da Anthropic.",
     "http_error": "Falha na requisição API (HTTP {code}).",
     "auth_expired": "Sessão expirada - abra o Claude Code para fazer login novamente.",
@@ -67,6 +76,6 @@
     "status_updated_s": "Atualizado há {s}s",
     "status_next_update": "Próx. atualiz.: {duration}",
     "status_refreshing": "Atualizando...",
-    "already_running": "Usage Monitor for Claude v{running_version} já está em execução.\n\nDeseja substituir a instância em execução?",
+    "already_running": "Auto Scheduler for Claude v{running_version} já está em execução.\n\nDeseja substituir a instância em execução?",
     "replace_failed": "Não foi possível substituir a instância em execução.\n\nFeche-a manualmente e tente novamente."
 }

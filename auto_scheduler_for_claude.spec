@@ -1,21 +1,21 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec file for Usage Monitor for Claude.
+PyInstaller spec file for Auto Scheduler for Claude.
 
 Build:
-  pyinstaller usage_monitor_for_claude.spec
+  pyinstaller auto_scheduler_for_claude.spec
 """
 
 a = Analysis(
-    ['usage_monitor_for_claude/__main__.py'],
+    ['auto_scheduler_for_claude/__main__.py'],
     pathex=[],
     binaries=[],
     datas=[
         ('locale/*.json', 'locale'),
-        ('usage_monitor_for_claude/notification_logo.ico', 'usage_monitor_for_claude'),
-        ('usage_monitor_for_claude/popup/popup.html', 'usage_monitor_for_claude/popup'),
-        ('usage_monitor_for_claude/popup/popup.css', 'usage_monitor_for_claude/popup'),
-        ('usage_monitor_for_claude/popup/popup.js', 'usage_monitor_for_claude/popup'),
+        ('auto_scheduler_for_claude/notification_logo.ico', 'auto_scheduler_for_claude'),
+        ('auto_scheduler_for_claude/popup/popup.html', 'auto_scheduler_for_claude/popup'),
+        ('auto_scheduler_for_claude/popup/popup.css', 'auto_scheduler_for_claude/popup'),
+        ('auto_scheduler_for_claude/popup/popup.js', 'auto_scheduler_for_claude/popup'),
     ],
     hiddenimports=[
         'pystray._win32',
@@ -53,7 +53,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='UsageMonitorForClaude',
+    name='AutoSchedulerForClaude',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -63,6 +63,6 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    icon='usage_monitor_for_claude.ico',
+    icon='auto_scheduler_for_claude.ico',
     version='version_info.py',
 )

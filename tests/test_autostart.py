@@ -10,7 +10,7 @@ import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
-import usage_monitor_for_claude.autostart as autostart_mod
+import auto_scheduler_for_claude.autostart as autostart_mod
 
 
 class _DefaultConfigDirTestCase(unittest.TestCase):
@@ -202,7 +202,7 @@ class TestCustomConfigDirAutostart(unittest.TestCase):
         autostart_mod.set_autostart(True)
 
         name = mock_winreg.SetValueEx.call_args[0][1]
-        self.assertEqual(name, 'UsageMonitorForClaude_abc123def456')
+        self.assertEqual(name, 'AutoSchedulerForClaude_abc123def456')
 
     @patch.object(autostart_mod, 'winreg')
     def test_enable_command_includes_config_dir(self, mock_winreg):
@@ -225,7 +225,7 @@ class TestCustomConfigDirAutostart(unittest.TestCase):
 
         autostart_mod.set_autostart(False)
 
-        mock_winreg.DeleteValue.assert_called_once_with(mock_key, 'UsageMonitorForClaude_abc123def456')
+        mock_winreg.DeleteValue.assert_called_once_with(mock_key, 'AutoSchedulerForClaude_abc123def456')
 
     @patch.object(autostart_mod, 'set_autostart')
     @patch.object(autostart_mod, 'winreg')

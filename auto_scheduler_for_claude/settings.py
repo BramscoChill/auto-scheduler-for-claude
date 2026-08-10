@@ -5,12 +5,12 @@ Settings
 Centralizes all user-tunable constants.  Structural constants (API URLs,
 registry keys, file paths) remain in their respective modules.
 
-Loads an optional ``usage-monitor-settings.json`` to let users override
+Loads an optional ``auto-scheduler-settings.json`` to let users override
 any constant.  Search order:
 
-1. ``$CLAUDE_CONFIG_DIR/usage-monitor-settings.json`` (if set and different from ``~/.claude/``)
+1. ``$CLAUDE_CONFIG_DIR/auto-scheduler-settings.json`` (if set and different from ``~/.claude/``)
 2. Next to the executable (frozen) or project root (source)
-3. ``~/.claude/usage-monitor-settings.json``
+3. ``~/.claude/auto-scheduler-settings.json``
 
 The app never creates this file - users place it manually.
 """
@@ -33,12 +33,12 @@ __all__ = [
     'ICON_DARK', 'ICON_FIELDS', 'ICON_LIGHT', 'ICON_STYLE', 'IDLE_PAUSE',
     'LANGUAGE', 'MAX_BACKOFF', 'NOTIFY_CLAUDE_UPDATE',
     'ON_DOUBLE_CLICK_COMMAND', 'ON_RESET_COMMAND', 'ON_STARTUP_COMMAND', 'ON_THRESHOLD_COMMAND',
-    'POLL_ERROR', 'POLL_FAST', 'POLL_FAST_EXTRA', 'POLL_INTERVAL',
-    'POPUP_FIELDS', 'SETTINGS_FILENAME', 'TIME_FORMAT', 'TOOLTIP_FIELDS',
+    'MAX_CONCURRENT_TASKS', 'POLL_ERROR', 'POLL_FAST', 'POLL_FAST_EXTRA', 'POLL_INTERVAL',
+    'POPUP_FIELDS', 'SETTINGS_FILENAME', 'TASK_COMMAND', 'TIME_FORMAT', 'TOOLTIP_FIELDS',
     'get_alert_thresholds',
 ]
 
-SETTINGS_FILENAME = 'usage-monitor-settings.json'
+SETTINGS_FILENAME = 'auto-scheduler-settings.json'
 
 _NUMERIC_BOUNDS: dict[str, int] = {
     'poll_interval': 1,
@@ -47,6 +47,7 @@ _NUMERIC_BOUNDS: dict[str, int] = {
     'poll_error': 1,
     'max_backoff': 1,
     'idle_pause': 0,
+    'max_concurrent_tasks': 1,
 }
 _COLOR_KEYS = frozenset({'bg', 'fg', 'fg_dim', 'fg_heading', 'fg_link', 'bar_bg', 'bar_fg', 'bar_fg_warn', 'bar_divider', 'bar_marker'})
 _ICON_KEYS = frozenset({'icon_light', 'icon_dark'})
@@ -63,7 +64,7 @@ _VALID_BAR_MODES = frozenset({'utilization', 'overage'})
 
 
 def _load_settings() -> dict:
-    """Read the first ``usage-monitor-settings.json`` found, or return ``{}``."""
+    """Read the first ``auto-scheduler-settings.json`` found, or return ``{}``."""
     if getattr(sys, 'frozen', False):
         app_dir = Path(sys.executable).parent
     else:
@@ -94,7 +95,7 @@ def _load_settings() -> dict:
             except (json.JSONDecodeError, ValueError) as exc:
                 ctypes.windll.user32.MessageBoxW(
                     0, f'Invalid JSON in settings file:\n{path}\n\n{exc}',
-                    'Usage Monitor for Claude - Settings Error', 0x30,
+                    'Auto Scheduler for Claude - Settings Error', 0x30,
                 )
                 return {}
             except OSError:
@@ -190,6 +191,16 @@ def _validate(data: dict, path: Path) -> dict:
                     drop.append(key)
             else:
                 errors.append(f'  {key}: expected a string or array of strings, got {type(value).__name__}')
+                drop.append(key)
+
+        elif key == 'task_command':
+            # A single argv list, not a shell string: an empty array is valid
+            # and means "auto-detect the native CLI".
+            if not isinstance(value, list):
+                errors.append(f'  {key}: expected an array of strings (the base command to run tasks with), got {type(value).__name__}')
+                drop.append(key)
+            elif any(not isinstance(item, str) or not item.strip() for item in value):
+                errors.append(f'  {key}: all items must be non-empty strings')
                 drop.append(key)
 
         elif key in _BOOL_KEYS:
@@ -290,7 +301,7 @@ def _validate(data: dict, path: Path) -> dict:
     if errors:
         ctypes.windll.user32.MessageBoxW(
             0, f'Invalid values in settings file:\n{path}\n\n' + '\n'.join(errors),
-            'Usage Monitor for Claude - Settings Error', 0x30,
+            'Auto Scheduler for Claude - Settings Error', 0x30,
         )
 
     return data
@@ -411,6 +422,14 @@ TIME_FORMAT: str = _S.get('time_format', _SYSTEM_TIME_FORMAT)
 # addition to the auto-detected native binary and the IDE extensions, and never
 # take part in authentication (see claude_cli.py).
 CLI_COMMAND: dict[str, list[str]] = _S.get('cli_command', {})
+
+# Task queue: how many queued tasks may run at the same time
+MAX_CONCURRENT_TASKS: int = _S.get('max_concurrent_tasks', 1)
+
+# Base command queued tasks are launched with (e.g. a WSL-hosted CLI).  Empty
+# means auto-detect the native binary.  Separate from cli_command, which stays
+# display only and must never gain a second job (see claude_cli.py).
+TASK_COMMAND: list[str] = _S.get('task_command', [])
 
 # Event commands
 ON_DOUBLE_CLICK_COMMAND: list[str] = _S.get('on_double_click_command', [])

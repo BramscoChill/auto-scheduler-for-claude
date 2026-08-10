@@ -1,6 +1,6 @@
 # Configuration
 
-All settings work out of the box - no configuration file is needed. To customize behavior, create a file called `usage-monitor-settings.json` with only the keys you want to change:
+All settings work out of the box - no configuration file is needed. To customize behavior, create a file called `auto-scheduler-settings.json` with only the keys you want to change:
 
 ```json
 {
@@ -12,9 +12,9 @@ All settings work out of the box - no configuration file is needed. To customize
 
 The app searches for this file in these locations (first match wins):
 
-1. **`$CLAUDE_CONFIG_DIR/usage-monitor-settings.json`** (only if a custom config directory is set via `--config-dir` or `CLAUDE_CONFIG_DIR` and differs from `~/.claude/`) - this lets every instance have its own settings when running one instance per Claude account
+1. **`$CLAUDE_CONFIG_DIR/auto-scheduler-settings.json`** (only if a custom config directory is set via `--config-dir` or `CLAUDE_CONFIG_DIR` and differs from `~/.claude/`) - this lets every instance have its own settings when running one instance per Claude account
 2. **Next to the EXE** (or project root when running from source)
-3. **`~/.claude/usage-monitor-settings.json`**
+3. **`~/.claude/auto-scheduler-settings.json`**
 
 The app never creates or modifies this file. To start, create an empty file and add keys as needed. Settings are read at startup - after editing the file, use the **Restart** option in the tray context menu to apply changes.
 
@@ -206,6 +206,15 @@ Run a shell command when a usage event occurs. See [Event Commands](event-comman
 | `on_threshold_command` | *(none)* | Shell command (or array of commands) to run when usage crosses a configured alert threshold |
 | `on_double_click_command` | *(none)* | Shell command (or array of commands) to run when you double-click the tray icon (e.g. launch [Agent Monitor for Claude](https://github.com/jens-duttke/agent-monitor-for-claude)); a single click still opens the popup |
 
+## Task queue
+
+Settings for the [task queue](task-queue.md), which runs queued `claude -p` prompts unattended when the five-hour quota has enough headroom. The tasks themselves live in a separate `auto-scheduler-tasks.json` file, not here.
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `max_concurrent_tasks` | `1` | How many queued tasks may run at the same time. Must be `>= 1`. Tasks started from the same quota snapshot cannot see each other's consumption until the next poll |
+| `task_command` | `[]` | Base command queued tasks are launched with, as an argv array (e.g. `["wsl", "claude"]` for a WSL-hosted CLI). Empty means auto-detect the native binary. Unlike `cli_command`, this one actually runs tasks - a shell string such as `"wsl claude"` is rejected rather than split |
+
 ## Polling intervals
 
 | Key | Default | Description |
@@ -215,7 +224,7 @@ Run a shell command when a usage event occurs. See [Event Commands](event-comman
 | `poll_fast_extra` | `2` | Extra fast polls after usage stops increasing |
 | `poll_error` | `30` | Seconds after a transient error (5xx, network). Rate-limit errors (429) use exponential backoff instead |
 | `max_backoff` | `900` | Maximum backoff in seconds for rate-limit errors (15 min) |
-| `idle_pause` | `300` | Seconds of inactivity before polling pauses (0 = disable). Polling also pauses when the workstation is locked |
+| `idle_pause` | `300` | Seconds of inactivity before polling pauses (0 = disable). Polling also pauses when the workstation is locked - except while the [task queue](task-queue.md) still has work, so it can drain overnight |
 
 ## Language
 

@@ -22,7 +22,7 @@ dist/
 .claude/settings.json
 
 # User settings
-usage-monitor-settings.json
+auto-scheduler-settings.json
 
 # OS
 Thumbs.db

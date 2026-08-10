@@ -1,5 +1,5 @@
 {
-    "popup_title": "Usage Monitor for Claude",
+    "popup_title": "Auto Scheduler for Claude",
     "menu_show": "Mostra utilizzo Claude",
     "tooltip_title": "Utilizzo Claude",
     "account": "ACCOUNT",
@@ -19,6 +19,15 @@
     "test_threshold_7d": "Soglia (7 giorni)",
     "test_startup": "Avvio",
     "test_double_click": "Doppio clic",
+    "task_queue": "Coda attività",
+    "task_state_waiting": "in attesa di quota",
+    "task_state_pending": "in attesa di uno slot libero",
+    "task_state_running": "in esecuzione",
+    "task_state_done": "completata (uscita {code})",
+    "task_state_interrupted": "interrotta",
+    "quit_tasks_running_title": "Attività ancora in esecuzione",
+    "quit_tasks_running": "{count} attività in coda sono ancora in esecuzione.\n\nSì - esci ora e interrompi le attività in esecuzione\nNo - attendi che finiscano, poi esci\nAnnulla - continua l'esecuzione",
+    "tooltip_draining": "Completamento delle attività, poi uscita...",
     "resets_in": "Si ripristina tra {duration} ({clock})",
     "resets_tomorrow": "Si ripristina domani, {clock}",
     "resets_weekday": "Si ripristina {day}, {clock}",
@@ -35,8 +44,8 @@
         "sab",
         "dom"
     ],
-    "loading": "Usage Monitor: Caricamento...",
-    "error_label": "Usage Monitor: Errore",
+    "loading": "Auto Scheduler: Caricamento...",
+    "error_label": "Auto Scheduler: Errore",
     "connection_error": "Impossibile connettersi all'API Anthropic.",
     "http_error": "Richiesta API fallita (HTTP {code}).",
     "auth_expired": "Sessione scaduta - apri Claude Code per accedere di nuovo.",
@@ -67,6 +76,6 @@
     "status_updated_s": "Aggiornato {s}s fa",
     "status_next_update": "Pross. aggiorn.: {duration}",
     "status_refreshing": "Aggiornamento...",
-    "already_running": "Usage Monitor for Claude v{running_version} è già in esecuzione.\n\nVuoi sostituire l'istanza in esecuzione?",
+    "already_running": "Auto Scheduler for Claude v{running_version} è già in esecuzione.\n\nVuoi sostituire l'istanza in esecuzione?",
     "replace_failed": "Non è stato possibile sostituire l'istanza in esecuzione.\n\nChiudila manualmente e riprova."
 }

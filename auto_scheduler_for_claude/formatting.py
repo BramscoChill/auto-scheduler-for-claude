@@ -16,7 +16,7 @@ from .settings import CURRENCY_SYMBOL, TIME_FORMAT, TOOLTIP_FIELDS, _SYSTEM_CURR
 
 __all__ = [
     'divider_positions', 'elapsed_pct', 'expand_popup_fields', 'field_period', 'format_credits',
-    'format_tooltip', 'parse_field_name', 'popup_label', 'time_until', 'tooltip_label',
+    'format_tooltip', 'parse_field_name', 'popup_label', 'quota_snapshot_env', 'time_until', 'tooltip_label',
 ]
 
 PERIOD_5H = 5 * 3600
@@ -433,3 +433,33 @@ def format_tooltip(data: dict[str, Any]) -> str:
             lines.append(line)
 
     return '\n'.join(lines)
+
+
+def quota_snapshot_env(data: dict[str, Any]) -> dict[str, str]:
+    """Build environment variables describing the current quota state.
+
+    Emits one ``AUTO_SCHEDULER_UTILIZATION_<FIELD>`` /
+    ``AUTO_SCHEDULER_RESETS_AT_<FIELD>`` pair per detected quota field, plus
+    ``AUTO_SCHEDULER_EXTRA_USED`` when paid extra usage is enabled and
+    ``AUTO_SCHEDULER_EXTRA_LIMIT`` when it also has a monthly limit (an
+    uncapped account has no limit to report).  Shared by the startup command,
+    the double-click command, and every queued task run.
+    """
+    env_vars: dict[str, str] = {}
+    for key, entry in data.items():
+        if key == 'extra_usage' or not isinstance(entry, dict) or 'utilization' not in entry:
+            continue
+        env_vars[f'AUTO_SCHEDULER_UTILIZATION_{key.upper()}'] = str(round(entry.get('utilization', 0) or 0))
+        env_vars[f'AUTO_SCHEDULER_RESETS_AT_{key.upper()}'] = entry.get('resets_at') or ''
+
+    extra = data.get('extra_usage') or {}
+    if extra.get('is_enabled'):
+        limit = extra.get('monthly_limit', 0) or 0
+        used = extra.get('used_credits', 0) or 0
+        currency = extra.get('currency')
+        decimal_places = extra.get('decimal_places')
+        env_vars['AUTO_SCHEDULER_EXTRA_USED'] = format_credits(used, currency, decimal_places)
+        if limit > 0:
+            env_vars['AUTO_SCHEDULER_EXTRA_LIMIT'] = format_credits(limit, currency, decimal_places)
+
+    return env_vars
