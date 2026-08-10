@@ -38,7 +38,7 @@ PRINT_MODE_CAVEAT = (
     'state/next_actions.md before finishing.'
 )
 
-_KNOWN_FIELDS = frozenset({'id', 'prompt', 'max_usage_percent', 'cwd', 'timeout_minutes', 'description'})
+_KNOWN_FIELDS = frozenset({'id', 'prompt', 'prompt_file', 'max_usage_percent', 'cwd', 'timeout_minutes', 'description'})
 
 _UNSAFE_FILENAME_CHARS = re.compile(r'[^A-Za-z0-9._-]+')
 
@@ -52,7 +52,12 @@ class Task:
     id : str
         Unique key, used for the state record and the log file name.
     prompt : str
-        Prompt text as written by the user, without ``PRINT_MODE_CAVEAT``.
+        The resolved prompt text, without ``PRINT_MODE_CAVEAT``: either the
+        inline ``prompt`` as written by the user, or the contents of
+        ``prompt_file`` when one was given.
+    prompt_file : str | None
+        Resolved path the prompt was read from, or None for an inline prompt.
+        Recorded for the log header only - the text is read once at startup.
     max_usage_percent : float
         Ceiling on five-hour consumption.  The task starts when current
         utilization is at or below this value.
@@ -70,6 +75,7 @@ class Task:
     timeout_minutes: float
     cwd: str | None
     description: str
+    prompt_file: str | None = None
 
 
 def load_tasks() -> list[Task]:
@@ -194,9 +200,18 @@ def _validate(entries: list) -> tuple[list[Task], list[str]]:
 
         entry_errors: list[str] = []
 
-        prompt = entry.get('prompt')
-        if not isinstance(prompt, str) or not prompt.strip():
-            entry_errors.append(f'{label}: "prompt" is required and must be a non-empty string')
+        # Validated before the prompt because a relative "prompt_file" resolves against it.
+        cwd = entry.get('cwd')
+        if cwd is not None:
+            if not isinstance(cwd, str) or not cwd.strip():
+                entry_errors.append(f'{label}: "cwd" must be a non-empty string')
+            elif not Path(cwd).is_dir():
+                entry_errors.append(f'{label}: "cwd" is not an existing directory: {cwd}')
+
+        working_dir = cwd.strip() if isinstance(cwd, str) and cwd.strip() else None
+
+        prompt, prompt_file, prompt_errors = _resolve_prompt(entry, label, working_dir)
+        entry_errors.extend(prompt_errors)
 
         max_usage_percent = entry.get('max_usage_percent')
         if isinstance(max_usage_percent, bool) or not isinstance(max_usage_percent, (int, float)):
@@ -209,13 +224,6 @@ def _validate(entries: list) -> tuple[list[Task], list[str]]:
             entry_errors.append(f'{label}: "timeout_minutes" must be a number (0 means no time limit)')
         elif timeout_minutes < 0:
             entry_errors.append(f'{label}: "timeout_minutes" must be >= 0, got {timeout_minutes}')
-
-        cwd = entry.get('cwd')
-        if cwd is not None:
-            if not isinstance(cwd, str) or not cwd.strip():
-                entry_errors.append(f'{label}: "cwd" must be a non-empty string')
-            elif not Path(cwd).is_dir():
-                entry_errors.append(f'{label}: "cwd" is not an existing directory: {cwd}')
 
         description = entry.get('description', '')
         if not isinstance(description, str):
@@ -234,11 +242,56 @@ def _validate(entries: list) -> tuple[list[Task], list[str]]:
             prompt=prompt,                                       # type: ignore[arg-type]  # validated above
             max_usage_percent=float(max_usage_percent),          # type: ignore[arg-type]  # validated above
             timeout_minutes=float(timeout_minutes),
-            cwd=cwd.strip() if isinstance(cwd, str) else None,
+            cwd=working_dir,
             description=description,
+            prompt_file=prompt_file,
         ))
 
     return tasks, errors
+
+
+def _resolve_prompt(entry: dict, label: str, working_dir: str | None) -> tuple[str | None, str | None, list[str]]:
+    """Return the prompt text, its source file, and any problems found.
+
+    ``prompt_file`` wins whenever it is present: the inline ``prompt`` is then
+    ignored completely, so a leftover draft can never run instead of the file
+    the user pointed at.  The file is read here, once at startup, and must
+    contain more than whitespace - an unattended agent must not be launched
+    with an empty prompt.
+    """
+    raw_path = entry.get('prompt_file')
+    if raw_path is None:
+        prompt = entry.get('prompt')
+        if not isinstance(prompt, str) or not prompt.strip():
+            return None, None, [f'{label}: "prompt" is required and must be a non-empty string (or use "prompt_file")']
+        return prompt, None, []
+
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        return None, None, [f'{label}: "prompt_file" must be a non-empty string']
+
+    path = _resolve_prompt_path(raw_path.strip(), working_dir)
+    if not path.is_file():
+        return None, None, [f'{label}: "prompt_file" is not an existing file: {path}']
+
+    try:
+        text = path.read_text(encoding='utf-8-sig').strip()
+    except OSError as exc:
+        return None, None, [f'{label}: "prompt_file" cannot be read: {path} ({exc})']
+
+    if not text:
+        return None, None, [f'{label}: "prompt_file" is empty: {path}']
+
+    return text, str(path), []
+
+
+def _resolve_prompt_path(raw_path: str, working_dir: str | None) -> Path:
+    """Resolve a prompt file path against the task's cwd, else the config dir."""
+    path = Path(raw_path).expanduser()
+    if path.is_absolute():
+        return path
+
+    base = Path(working_dir) if working_dir else effective_config_dir()
+    return base / path
 
 
 def _show_error(message: str) -> None:

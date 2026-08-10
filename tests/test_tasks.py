@@ -217,6 +217,128 @@ class TestValidation(unittest.TestCase):
         self.assertIn('"two"', message)
 
 
+class TestPromptFile(unittest.TestCase):
+    """Tests for reading the prompt from a file instead of the registry."""
+
+    def test_prompt_file_used_instead_of_prompt(self):
+        """When both are given, the file wins and the inline prompt is ignored."""
+        with TemporaryDirectory() as tmp:
+            prompt_path = Path(tmp) / 'prompt.md'
+            prompt_path.write_text('From the file.', encoding='utf-8')
+            entry = _valid_entry(prompt='Inline, must be ignored.', prompt_file=str(prompt_path))
+            result, mock_ctypes = _write_and_load([entry], tmp)
+
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result[0].prompt, 'From the file.')
+            self.assertEqual(Path(result[0].prompt_file), prompt_path)
+        mock_ctypes.windll.user32.MessageBoxW.assert_not_called()
+
+    def test_prompt_file_without_prompt_accepted(self):
+        with TemporaryDirectory() as tmp:
+            prompt_path = Path(tmp) / 'prompt.md'
+            prompt_path.write_text('Only the file.', encoding='utf-8')
+            entry = {'id': 'daily', 'prompt_file': str(prompt_path), 'max_usage_percent': 40}
+            result, mock_ctypes = _write_and_load([entry], tmp)
+
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result[0].prompt, 'Only the file.')
+        mock_ctypes.windll.user32.MessageBoxW.assert_not_called()
+
+    def test_invalid_inline_prompt_ignored_when_prompt_file_given(self):
+        """"Ignored" is literal - a leftover blank prompt is not validated."""
+        with TemporaryDirectory() as tmp:
+            prompt_path = Path(tmp) / 'prompt.md'
+            prompt_path.write_text('From the file.', encoding='utf-8')
+            entry = _valid_entry(prompt='   ', prompt_file=str(prompt_path))
+            result, mock_ctypes = _write_and_load([entry], tmp)
+
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result[0].prompt, 'From the file.')
+        mock_ctypes.windll.user32.MessageBoxW.assert_not_called()
+
+    def test_file_contents_are_stripped(self):
+        with TemporaryDirectory() as tmp:
+            prompt_path = Path(tmp) / 'prompt.md'
+            prompt_path.write_text('\n\n  Do the thing.\n\n', encoding='utf-8')
+            entry = _valid_entry(prompt_file=str(prompt_path))
+            result, _ = _write_and_load([entry], tmp)
+
+            self.assertEqual(result[0].prompt, 'Do the thing.')
+
+    def test_empty_prompt_file_rejected(self):
+        """An unattended agent must never be launched with a blank prompt."""
+        with TemporaryDirectory() as tmp:
+            prompt_path = Path(tmp) / 'prompt.md'
+            prompt_path.write_text('   \n\n', encoding='utf-8')
+            entry = _valid_entry(prompt_file=str(prompt_path))
+            result, mock_ctypes = _write_and_load([entry], tmp)
+
+            self.assertEqual(result, [])
+            self.assertIn('empty', mock_ctypes.windll.user32.MessageBoxW.call_args[0][1])
+
+    def test_missing_prompt_file_rejected(self):
+        with TemporaryDirectory() as tmp:
+            entry = _valid_entry(prompt_file=str(Path(tmp) / 'nope.md'))
+            result, mock_ctypes = _write_and_load([entry], tmp)
+
+            self.assertEqual(result, [])
+            self.assertIn('"prompt_file"', mock_ctypes.windll.user32.MessageBoxW.call_args[0][1])
+
+    def test_blank_prompt_file_rejected(self):
+        with TemporaryDirectory() as tmp:
+            result, mock_ctypes = _write_and_load([_valid_entry(prompt_file='  ')], tmp)
+
+            self.assertEqual(result, [])
+            self.assertIn('"prompt_file"', mock_ctypes.windll.user32.MessageBoxW.call_args[0][1])
+
+    def test_null_prompt_file_falls_back_to_prompt(self):
+        with TemporaryDirectory() as tmp:
+            result, mock_ctypes = _write_and_load([_valid_entry(prompt_file=None)], tmp)
+
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result[0].prompt, 'Do the thing.')
+            self.assertIsNone(result[0].prompt_file)
+        mock_ctypes.windll.user32.MessageBoxW.assert_not_called()
+
+    def test_neither_prompt_nor_prompt_file_rejected(self):
+        with TemporaryDirectory() as tmp:
+            result, mock_ctypes = _write_and_load([{'id': 'a', 'max_usage_percent': 10}], tmp)
+
+            self.assertEqual(result, [])
+            self.assertIn('"prompt_file"', mock_ctypes.windll.user32.MessageBoxW.call_args[0][1])
+
+    def test_relative_prompt_file_resolves_against_cwd(self):
+        with TemporaryDirectory() as tmp:
+            project = Path(tmp) / 'project'
+            (project / 'prompts').mkdir(parents=True)
+            (project / 'prompts' / 'daily.md').write_text('Project prompt.', encoding='utf-8')
+            entry = _valid_entry(cwd=str(project), prompt_file='prompts/daily.md')
+            result, _ = _write_and_load([entry], tmp)
+
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result[0].prompt, 'Project prompt.')
+
+    def test_relative_prompt_file_resolves_against_config_dir_without_cwd(self):
+        with TemporaryDirectory() as tmp:
+            (Path(tmp) / 'prompts').mkdir()
+            (Path(tmp) / 'prompts' / 'daily.md').write_text('Config dir prompt.', encoding='utf-8')
+            entry = _valid_entry(prompt_file='prompts/daily.md')
+            result, _ = _write_and_load([entry], tmp)
+
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result[0].prompt, 'Config dir prompt.')
+
+    def test_prompt_file_is_read_once_at_load(self):
+        """Editing the file afterwards does not change an already loaded task."""
+        with TemporaryDirectory() as tmp:
+            prompt_path = Path(tmp) / 'prompt.md'
+            prompt_path.write_text('Original.', encoding='utf-8')
+            result, _ = _write_and_load([_valid_entry(prompt_file=str(prompt_path))], tmp)
+            prompt_path.write_text('Edited.', encoding='utf-8')
+
+            self.assertEqual(result[0].prompt, 'Original.')
+
+
 class TestSelectRunnable(unittest.TestCase):
     """Tests for the pure selection logic."""
 

@@ -91,14 +91,18 @@ def _entry(task_id: str = 'daily', **overrides) -> dict:
 
 
 @contextmanager
-def _runner(entries, *, state=None, max_concurrent=1, popen=None, task_command=None, on_drained=None):
+def _runner(entries, *, state=None, max_concurrent=1, popen=None, task_command=None, on_drained=None, files=None):
     """Build a TaskRunner against a temporary config dir with faked subprocesses.
 
     Yields ``(runner, config_dir, popen, mock_ctypes)``.  Everything runs
-    inside the patch context so ``evaluate`` uses the fakes too.
+    inside the patch context so ``evaluate`` uses the fakes too.  ``files``
+    maps a name to its content and is written into the config dir before the
+    registry is loaded, for tasks that read their prompt from a file.
     """
     with TemporaryDirectory() as tmp:
         config_dir = Path(tmp)
+        for name, content in (files or {}).items():
+            (config_dir / name).write_text(content, encoding='utf-8')
         if entries is not None:
             content = entries if isinstance(entries, str) else json.dumps(entries)
             (config_dir / tasks_mod.TASKS_FILENAME).write_text(content, encoding='utf-8')
@@ -152,6 +156,26 @@ class TestStart(unittest.TestCase):
 
             blocking.finish()
             _wait_until(lambda: runner.running_count() == 0, 'run to finish')
+
+    def test_prompt_file_content_is_sent_and_logged(self):
+        entry = _entry(prompt='Inline, must be ignored.', prompt_file='daily-prompt.md')
+        with _runner([entry], files={'daily-prompt.md': 'Read the playbook.'}) as (runner, config_dir, popen, _):
+            runner.evaluate(_usage(10))
+            _wait_until(lambda: runner.running_count() == 0, 'run to finish')
+
+            command = popen.commands[0]
+            self.assertTrue(command[-2].startswith('Read the playbook.'))
+            self.assertNotIn('Inline, must be ignored.', command[-2])
+
+            log_text = runner.log_path('daily').read_text(encoding='utf-8')
+            self.assertIn(f'prompt:  {config_dir / "daily-prompt.md"}', log_text)
+
+    def test_inline_prompt_logs_no_prompt_source(self):
+        with _runner([_entry()]) as (runner, _config_dir, _popen, _):
+            runner.evaluate(_usage(10))
+            _wait_until(lambda: runner.running_count() == 0, 'run to finish')
+
+            self.assertNotIn('\nprompt:', runner.log_path('daily').read_text(encoding='utf-8'))
 
     def test_state_file_carries_a_version(self):
         with _runner([_entry()]) as (runner, config_dir, _, _mock):

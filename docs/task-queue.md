@@ -55,7 +55,7 @@ A JSON array of task objects:
   {
     "id": "research",
     "description": "Research-only tick",
-    "prompt": "Read agent_system/core_prompt.md and execute a RESEARCH-ONLY tick.",
+    "prompt_file": "prompts/research-tick.md",
     "cwd": "D:/Projecten/_AI_/trading-agent",
     "max_usage_percent": 20,
     "timeout_minutes": 0
@@ -68,11 +68,39 @@ A JSON array of task objects:
 | Field | Required | Type | Rules |
 |---|---|---|---|
 | `id` | yes | string | Non-empty, unique across the file. Key for the state record and the log name. |
-| `prompt` | yes | string | Non-empty. The print-mode caveat is appended automatically. |
+| `prompt` | yes* | string | Non-empty. The print-mode caveat is appended automatically. |
+| `prompt_file` | yes* | string | Path to a file holding the prompt. Must exist and contain more than whitespace. |
 | `max_usage_percent` | yes | number | `0`-`100` inclusive. The task runs when five-hour utilization is **at or below** this. |
 | `cwd` | no | string | Working directory for the run. Must be an existing directory. Defaults to the app's working directory. |
 | `timeout_minutes` | no | number | Default `180`. **`0` means no time limit.** Must be `>= 0`. |
 | `description` | no | string | Tray-menu label only. Falls back to `id` when omitted. |
+
+\* Exactly one of `prompt` / `prompt_file` is needed - see below.
+
+### `prompt` vs `prompt_file`
+
+`prompt_file` keeps a long prompt out of the JSON file, where newlines, quotes, and backslashes
+all have to be escaped. Give a task either one:
+
+- **`prompt` only** - the string is used as written.
+- **`prompt_file` only** - the file's contents are used, with surrounding whitespace trimmed.
+- **both** - **`prompt_file` wins and `prompt` is ignored completely.** The inline text is not
+  even validated, so a leftover draft can never run instead of the file you pointed at.
+
+Path resolution:
+
+| Path | Resolved against |
+|---|---|
+| absolute (`D:/proj/prompts/daily.md`) | used as-is |
+| relative and the task has a `cwd` | that `cwd` |
+| relative and the task has no `cwd` | the effective config directory (next to `auto-scheduler-tasks.json`) |
+
+`~` is expanded. The file is read as UTF-8 (a BOM is tolerated) **once at startup**, together with
+the registry itself - editing the prompt file later needs an app restart, and the resolved path is
+written into the run's log header.
+
+A `prompt_file` that is missing, unreadable, or contains nothing but whitespace is a validation
+error: an unattended agent must never be launched with an empty prompt.
 
 ### Validation
 
@@ -82,7 +110,8 @@ queue for the session: a partially loaded queue of unattended agents is worse th
 
 Rejected, among others:
 
-- a missing or blank `id` or `prompt`
+- a missing or blank `id`, or neither a `prompt` nor a `prompt_file`
+- a `prompt_file` that does not exist, cannot be read, or holds only whitespace
 - a duplicate `id`
 - `max_usage_percent` outside 0-100, missing, or not a number (`true` is not a number)
 - a negative `timeout_minutes`
@@ -198,6 +227,7 @@ Task ids are sanitized for file-system use.
 ```
 === task daily ===
 started: 2026-08-10T22:04:11.179586+00:00
+prompt:  D:\Projecten\_AI_\trading-agent\prompts\daily.md
 command: ['C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd', '-p', 'Read agent_system/...', '--dangerously-skip-permissions']
 cwd:     D:\Projecten\_AI_\trading-agent
 timeout: 180 min
@@ -208,6 +238,9 @@ timeout: 180 min
 exit code: 0
 duration:  6411s
 ```
+
+The `prompt:` line appears only for a task that uses `prompt_file`, and names the resolved path
+the text was read from.
 
 One-shot semantics bound growth to one log per task, so there is no retention or rotation
 policy. If the log directory cannot be created or the file cannot be opened, the task is **not**

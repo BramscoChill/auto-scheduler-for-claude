@@ -142,7 +142,7 @@ Create `auto-scheduler-tasks.json` in your **effective config directory** - `CLA
   {
     "id": "research",
     "description": "Research-only tick",
-    "prompt": "Read agent_system/core_prompt.md and execute a RESEARCH-ONLY tick.",
+    "prompt_file": "prompts/research-tick.md",
     "cwd": "D:/Projecten/_AI_/trading-agent",
     "max_usage_percent": 20,
     "timeout_minutes": 0
@@ -157,11 +157,14 @@ The file is read **once at startup**, so edits need an app restart - the same as
 | Field | Required | Type | Rules |
 |---|---|---|---|
 | `id` | yes | string | Non-empty, unique across the file. Key for the state record and the log name. |
-| `prompt` | yes | string | Non-empty. A print-mode caveat is appended automatically, telling the agent never to end its turn with background work unfinished. |
+| `prompt` | yes* | string | Non-empty. A print-mode caveat is appended automatically, telling the agent never to end its turn with background work unfinished. |
+| `prompt_file` | yes* | string | Path to a file holding the prompt, for prompts too long to escape into JSON. Must exist and contain more than whitespace. |
 | `max_usage_percent` | yes | number | `0`-`100` inclusive. The task runs when five-hour utilization is **at or below** this. |
 | `cwd` | no | string | Working directory for the run. Must be an existing directory. Defaults to the app's working directory. |
 | `timeout_minutes` | no | number | Default `180`. **`0` means no time limit.** Must be `>= 0`. |
 | `description` | no | string | Tray-menu label only. Falls back to `id` when omitted. |
+
+\* Give a task a `prompt` or a `prompt_file`. If you give it **both, `prompt_file` wins and `prompt` is ignored entirely** - a leftover draft can never run instead of the file you pointed at. A relative `prompt_file` resolves against the task's `cwd`, or against the config directory when the task has no `cwd`; the file is read once at startup, so editing it later needs an app restart.
 
 ### Understanding `max_usage_percent`
 

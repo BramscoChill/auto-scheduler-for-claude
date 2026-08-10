@@ -319,6 +319,8 @@ class TaskRunner:
         try:
             log_handle.write(f'=== task {task.id} ===\n')
             log_handle.write(f'started: {now.isoformat()}\n')
+            if task.prompt_file:
+                log_handle.write(f'prompt:  {task.prompt_file}\n')
             log_handle.write(f'command: {command}\n')
             log_handle.write(f'cwd:     {working_dir or os.getcwd()}\n')
             log_handle.write(f'timeout: {"none" if task.timeout_minutes == 0 else f"{task.timeout_minutes:g} min"}\n\n')

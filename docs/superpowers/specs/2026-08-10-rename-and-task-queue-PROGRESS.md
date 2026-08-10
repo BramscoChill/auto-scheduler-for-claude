@@ -76,6 +76,15 @@ Verification performed:
 - `git grep -i "usage.?monitor"` -> only the intentional migration steps in `CHANGELOG.md`
 - All relative markdown links across `*.md` and `docs/*.md` resolve
 
+## Post-spec follow-ups
+
+- `prompt_file` (not in the spec, requested afterwards): a task may point at a file instead of
+  writing the prompt inline. When both are present the file wins and `prompt` is ignored without
+  being validated. The file is read during validation (so `Task.prompt` is always the final text
+  and `task_runner.py` stays file-system free for prompts), must contain more than whitespace,
+  and a relative path resolves against the task's `cwd`, else the effective config dir. The
+  resolved path is written into the log header as a `prompt:` line. 1207 tests, OK.
+
 ## Notes / decisions taken during implementation
 
 - No virtual environment existed; created `.venv` (already covered by `.gitignore`) and

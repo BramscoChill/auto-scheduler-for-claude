@@ -100,16 +100,21 @@ These are the **only** files the application writes. Without a task file it writ
 @dataclass(frozen=True)
 class Task:
     id: str
-    prompt: str
+    prompt: str                  # resolved text: inline, or the contents of prompt_file
     max_usage_percent: float
     timeout_minutes: float       # 0 means no limit
     cwd: str | None
     description: str
+    prompt_file: str | None = None   # resolved source path, for the log header
 
 
 def load_tasks() -> list[Task]
 def select_runnable(tasks, completed_ids, running_ids, five_hour_pct, slots) -> list[Task]
 def sanitize_task_id(task_id: str) -> str
+
+# private
+def _resolve_prompt(entry, label, working_dir) -> tuple[str | None, str | None, list[str]]
+def _resolve_prompt_path(raw_path: str, working_dir: str | None) -> Path
 ```
 
 Constants: `TASKS_FILENAME`, `DEFAULT_TIMEOUT_MINUTES` (`180.0`), `PRINT_MODE_CAVEAT` (copied
@@ -120,6 +125,24 @@ which drops individual bad keys, a single invalid entry disables the **whole** q
 session. Unknown field names are rejected so a `timeout_minutes` typo cannot silently fall back
 to the default on an unattended agent. A missing file is not an error - the feature is simply
 off.
+
+#### Prompt resolution
+
+An entry supplies either `prompt` or `prompt_file`. `_resolve_prompt()` runs during validation,
+so `Task.prompt` always holds the final text and `task_runner.py` never touches the file system
+for a prompt:
+
+- `prompt_file` present -> it wins unconditionally and the inline `prompt` is **ignored, not
+  validated** (a leftover draft must never run instead of the file the user pointed at). An
+  explicit `null` counts as absent and falls back to `prompt`.
+- The file is read once at load with `utf-8-sig` and `.strip()`ed. Missing, unreadable, or
+  whitespace-only is a validation error - an unattended agent must never start on an empty
+  prompt.
+- `_resolve_prompt_path()` expands `~`, uses an absolute path as-is, and resolves a relative one
+  against the task's `cwd`, falling back to `effective_config_dir()`. This is why `cwd` is
+  validated **before** the prompt inside `_validate()`.
+- The resolved path is kept in `Task.prompt_file` purely so `task_runner._start()` can write a
+  `prompt:  <path>` line into the log header (omitted for inline prompts).
 
 `select_runnable` walks the list in file order and `continue`s past a task whose threshold is
 not met (never `break`s), so file order plus per-task thresholds act as priority.
@@ -278,7 +301,7 @@ became `"Auto Scheduler: ..."` for the `loading` and `error_label` keys.
 
 | File | Coverage |
 |---|---|
-| `tests/test_tasks.py` | Registry loading, every validation rule, `select_runnable` (equality, non-blocking skip, slots, order), id sanitizing |
+| `tests/test_tasks.py` | Registry loading, every validation rule, prompt/`prompt_file` precedence and path resolution, `select_runnable` (equality, non-blocking skip, slots, order), id sanitizing |
 | `tests/test_task_runner.py` | Start/state/log writing, exit codes, timeout kill (`124`), no-timeout path, `kill_all` (`130`), drain callback, interrupted and corrupt state, unwritable log dir, concurrency limits, concurrent `evaluate` from four threads |
 | `tests/test_app.py` | `evaluate` delegation (and non-delegation on errors), idle bypass, the three quit outcomes, draining tooltip, task menu rendering |
 | `tests/test_settings.py` | `max_concurrent_tasks` and `task_command` validation and defaults |
