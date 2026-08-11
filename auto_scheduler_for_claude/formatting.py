@@ -16,7 +16,8 @@ from .settings import CURRENCY_SYMBOL, TIME_FORMAT, TOOLTIP_FIELDS, _SYSTEM_CURR
 
 __all__ = [
     'divider_positions', 'elapsed_pct', 'expand_popup_fields', 'field_period', 'format_credits',
-    'format_tooltip', 'parse_field_name', 'popup_label', 'quota_snapshot_env', 'time_until', 'tooltip_label',
+    'format_duration', 'format_timestamp', 'format_tooltip', 'parse_field_name', 'popup_label',
+    'quota_snapshot_env', 'time_until', 'tooltip_label',
 ]
 
 PERIOD_5H = 5 * 3600
@@ -347,6 +348,70 @@ def time_until(iso_str: str, clock_24h: bool | None = None) -> str:
         return T['resets_weekday'].format(day=wd, clock=time_str)
     except Exception:
         return ''
+
+
+def format_duration(total_seconds: float) -> str:
+    """Return a localized short duration: ``'1h 12m'``, ``'6m'``, or ``'42s'``.
+
+    Used for a task run's elapsed and total time, where the interesting
+    magnitude spans seconds to hours.  Minutes are truncated, not rounded, so
+    a displayed duration never runs ahead of the real one.
+
+    Parameters
+    ----------
+    total_seconds : float
+        Duration in seconds.  Negative input is treated as zero.
+    """
+    seconds = max(0, int(total_seconds))
+    if seconds < 60:
+        return T['duration_s'].format(s=seconds)
+
+    total_min = seconds // 60
+    if total_min < 60:
+        return T['duration_m'].format(m=total_min)
+
+    return T['duration_hm'].format(h=total_min // 60, m=total_min % 60)
+
+
+def format_timestamp(iso_str: str, clock_24h: bool | None = None) -> str:
+    """Return a localized "when did this happen" string for a past timestamp.
+
+    Today:          ``'22:04'``
+    Yesterday:      ``'Yesterday 03:12'``
+    Within a week:  ``'Sat. 03:12'``
+    Older:          ``'2026-08-10 03:12'``
+
+    Parameters
+    ----------
+    iso_str : str
+        ISO 8601 timestamp, as written into the task state file (UTC).
+    clock_24h : bool or None
+        Format the clock in 24-hour (True) or 12-hour (False) style.
+        ``None`` falls back to the ``time_format`` setting.
+    """
+    if clock_24h is None:
+        clock_24h = TIME_FORMAT == '24h'
+
+    if not iso_str:
+        return ''
+
+    try:
+        when_local = datetime.fromisoformat(iso_str).astimezone()
+    except (TypeError, ValueError):
+        return ''
+
+    clock = _format_clock(when_local, clock_24h)
+    today = datetime.now().date()
+    days_ago = (today - when_local.date()).days
+
+    if days_ago <= 0:
+        return clock
+    if days_ago == 1:
+        return T['time_yesterday'].format(clock=clock)
+    if days_ago < 7:
+        return T['time_weekday'].format(day=T['weekdays'][when_local.weekday()], clock=clock)
+
+    return T['time_date'].format(date=when_local.strftime('%Y-%m-%d'), clock=clock)
 
 
 def _target_currency_symbol(currency: str | None) -> str:

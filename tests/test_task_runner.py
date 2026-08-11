@@ -22,7 +22,7 @@ from unittest.mock import MagicMock, patch
 import auto_scheduler_for_claude.task_runner as runner_mod
 import auto_scheduler_for_claude.tasks as tasks_mod
 from auto_scheduler_for_claude.task_runner import (
-    EXIT_KILLED, EXIT_TIMEOUT, LOGS_DIRNAME, STATE_FILENAME,
+    EXIT_KILLED, EXIT_STOPPED, EXIT_TIMEOUT, LOG_TAIL_BYTES, LOGS_DIRNAME, STATE_FILENAME,
     STATUS_DONE, STATUS_INTERRUPTED, STATUS_PENDING, STATUS_RUNNING, STATUS_WAITING, TaskRunner,
 )
 
@@ -118,7 +118,16 @@ def _runner(entries, *, state=None, max_concurrent=1, popen=None, task_command=N
              patch.object(runner_mod, 'MAX_CONCURRENT_TASKS', max_concurrent), \
              patch.object(runner_mod, 'TASK_COMMAND', task_command if task_command is not None else []), \
              patch.object(runner_mod.subprocess, 'Popen', popen):
-            yield TaskRunner(on_drained=on_drained), config_dir, popen, mock_ctypes
+            task_runner = TaskRunner(on_drained=on_drained)
+            try:
+                yield task_runner, config_dir, popen, mock_ctypes
+            finally:
+                # A watcher thread holds the run's log file open, and Windows
+                # refuses to delete the temp dir while it does - so a test that
+                # leaves a task running would fail during cleanup, not on its
+                # own assertion.
+                task_runner.kill_all()
+                _wait_until(lambda: task_runner.running_count() == 0, 'runs to finish')
 
 
 def _wait_until(condition, message: str) -> None:
@@ -507,6 +516,263 @@ class TestPendingWork(unittest.TestCase):
             blocking.finish()
             _wait_until(lambda: runner.running_count() == 0, 'run to finish')
             self.assertFalse(runner.has_pending_work())
+
+
+class TestVersion(unittest.TestCase):
+    """Tests for the change counter the popup dedups its refresh on."""
+
+    def test_bumps_when_a_task_starts_and_when_it_ends(self):
+        blocking = FakeProcess(block=True)
+        with _runner([_entry()], popen=RecordingPopen(blocking)) as (runner, _config_dir, _popen, _):
+            before = runner.version
+            runner.evaluate(_usage(10))
+            started = runner.version
+            self.assertGreater(started, before)
+
+            blocking.finish()
+            _wait_until(lambda: runner.running_count() == 0, 'run to finish')
+            self.assertGreater(runner.version, started)
+
+    def test_bumps_when_the_quota_reading_changes(self):
+        """Waiting and pending are derived from it, so rows move without any run."""
+        with _runner([_entry(max_usage_percent=5)]) as (runner, _config_dir, _popen, _):
+            runner.evaluate(_usage(80))
+            first = runner.version
+            runner.evaluate(_usage(60))
+
+            self.assertGreater(runner.version, first)
+
+    def test_unchanged_quota_reading_does_not_bump(self):
+        """Otherwise every poll would repaint the popup for nothing."""
+        with _runner([_entry(max_usage_percent=5)]) as (runner, _config_dir, _popen, _):
+            runner.evaluate(_usage(80))
+            first = runner.version
+            runner.evaluate(_usage(80))
+
+            self.assertEqual(runner.version, first)
+
+
+class TestSnapshot(unittest.TestCase):
+    """Tests for the single-lock queue snapshot the popup renders."""
+
+    def test_reports_status_keys_not_text(self):
+        with _runner([_entry('a'), _entry('b', max_usage_percent=5)]) as (runner, _config_dir, _popen, _):
+            runner.evaluate(_usage(20))
+            _wait_until(lambda: runner.running_count() == 0, 'run to finish')
+            snapshot = runner.snapshot()
+
+            self.assertEqual([row['status'] for row in snapshot['tasks']], [STATUS_DONE, STATUS_WAITING])
+
+    def test_carries_registry_fields_and_queue_state(self):
+        with _runner([_entry(description='Nightly', timeout_minutes=30)], max_concurrent=3) as (runner, _c, _p, _):
+            runner.evaluate(_usage(10))
+            snapshot = runner.snapshot()
+
+        self.assertEqual(snapshot['max_concurrent'], 3)
+        self.assertEqual(snapshot['five_hour_pct'], 10)
+        self.assertFalse(snapshot['disabled'])
+        row = snapshot['tasks'][0]
+        self.assertEqual(row['description'], 'Nightly')
+        self.assertEqual(row['timeout_minutes'], 30)
+        self.assertEqual(row['max_usage_percent'], 40)
+
+    def test_running_row_reports_elapsed_and_finished_row_does_not(self):
+        blocking = FakeProcess(block=True)
+        with _runner([_entry()], popen=RecordingPopen(blocking)) as (runner, _config_dir, _popen, _):
+            runner.evaluate(_usage(10))
+            self.assertIsNotNone(runner.snapshot()['tasks'][0]['elapsed_seconds'])
+
+            blocking.finish()
+            _wait_until(lambda: runner.running_count() == 0, 'run to finish')
+            self.assertIsNone(runner.snapshot()['tasks'][0]['elapsed_seconds'])
+
+    def test_records_utilization_at_start(self):
+        with _runner([_entry()]) as (runner, config_dir, _popen, _):
+            runner.evaluate(_usage(31))
+
+            self.assertEqual(runner.snapshot()['tasks'][0]['started_at_utilization'], 31)
+            self.assertEqual(_read_state(config_dir)['tasks']['daily']['started_at_utilization'], 31)
+
+    def test_tolerates_a_state_record_written_before_utilization_was_recorded(self):
+        old_record = {'version': 1, 'tasks': {'daily': {
+            'started_at': '2026-08-10T22:04:11+00:00', 'finished_at': '2026-08-10T22:10:11+00:00',
+            'exit_code': 0, 'log': 'daily-20260810-220411.log',
+        }}}
+        with _runner([_entry()], state=old_record) as (runner, _config_dir, _popen, _):
+            row = runner.snapshot()['tasks'][0]
+
+        self.assertIsNone(row['started_at_utilization'])
+        self.assertEqual(row['status'], STATUS_DONE)
+
+    def test_empty_registry_snapshots_cleanly(self):
+        with _runner(None) as (runner, _config_dir, _popen, _):
+            snapshot = runner.snapshot()
+
+        self.assertEqual(snapshot['tasks'], [])
+        self.assertEqual(snapshot['running_count'], 0)
+        self.assertIsNone(snapshot['five_hour_pct'])
+
+
+class TestStop(unittest.TestCase):
+    """Tests for stopping one running task from the popup."""
+
+    def test_records_the_stopped_exit_code(self):
+        blocking = FakeProcess(block=True)
+        with _runner([_entry()], popen=RecordingPopen(blocking)) as (runner, config_dir, _popen, _):
+            runner.evaluate(_usage(10))
+
+            self.assertTrue(runner.stop('daily'))
+            _wait_until(lambda: runner.running_count() == 0, 'run to finish')
+
+            self.assertTrue(blocking.killed)
+            record = _read_state(config_dir)['tasks']['daily']
+            self.assertEqual(record['exit_code'], EXIT_STOPPED)
+            self.assertIsNotNone(record['finished_at'])
+
+    def test_does_not_start_draining(self):
+        """Stopping one task is not a decision to stop starting others."""
+        blocking = FakeProcess(block=True)
+        with _runner([_entry('a'), _entry('b')], popen=RecordingPopen(blocking)) as (runner, _c, popen, _):
+            runner.evaluate(_usage(10))
+            runner.stop('a')
+            _wait_until(lambda: runner.running_count() == 0, 'run to finish')
+
+            self.assertFalse(runner.is_draining())
+            runner.evaluate(_usage(10))
+            self.assertEqual(runner.status('b'), STATUS_RUNNING)
+            self.assertEqual(len(popen.calls), 2)
+
+    def test_unknown_or_finished_task_is_a_no_op(self):
+        with _runner([_entry()]) as (runner, config_dir, _popen, _):
+            runner.evaluate(_usage(10))
+            _wait_until(lambda: runner.status('daily') == STATUS_DONE, 'run to finish')
+
+            self.assertFalse(runner.stop('daily'))
+            self.assertFalse(runner.stop('nope'))
+            self.assertEqual(_read_state(config_dir)['tasks']['daily']['exit_code'], 0)
+
+    def test_keeps_the_recorded_start_utilization(self):
+        blocking = FakeProcess(block=True)
+        with _runner([_entry()], popen=RecordingPopen(blocking)) as (runner, config_dir, _popen, _):
+            runner.evaluate(_usage(31))
+            runner.stop('daily')
+            _wait_until(lambda: runner.running_count() == 0, 'run to finish')
+
+            self.assertEqual(_read_state(config_dir)['tasks']['daily']['started_at_utilization'], 31)
+
+
+class TestReload(unittest.TestCase):
+    """Tests for swapping in a registry the caller has already validated."""
+
+    def test_replaces_the_task_set_and_bumps_the_version(self):
+        with _runner([_entry('a')]) as (runner, _config_dir, _popen, _):
+            before = runner.version
+            replacement = tasks_mod.Task(
+                id='b', prompt='x', max_usage_percent=10, timeout_minutes=1, cwd=None, description='',
+            )
+            runner.reload([replacement])
+
+            self.assertEqual([task.id for task in runner.tasks], ['b'])
+            self.assertGreater(runner.version, before)
+
+    def test_keeps_completed_records(self):
+        """A reload must never resurrect a task that already ran."""
+        with _runner([_entry()]) as (runner, _config_dir, _popen, popen_mock):
+            runner.evaluate(_usage(10))
+            _wait_until(lambda: runner.status('daily') == STATUS_DONE, 'run to finish')
+
+            runner.reload(list(runner.tasks))
+
+            self.assertEqual(runner.status('daily'), STATUS_DONE)
+            self.assertEqual(runner.completed_ids(), ['daily'])
+
+    def test_keeps_a_running_task_running(self):
+        blocking = FakeProcess(block=True)
+        with _runner([_entry()], popen=RecordingPopen(blocking)) as (runner, _config_dir, _popen, _):
+            runner.evaluate(_usage(10))
+            runner.reload(list(runner.tasks))
+
+            self.assertEqual(runner.running_count(), 1)
+            self.assertEqual(runner.status('daily'), STATUS_RUNNING)
+
+    def test_reloading_to_empty_turns_the_queue_off(self):
+        with _runner([_entry()]) as (runner, _config_dir, _popen, _):
+            runner.reload([])
+
+            self.assertFalse(runner.has_tasks())
+            self.assertEqual(runner.snapshot()['tasks'], [])
+
+
+class TestLogTail(unittest.TestCase):
+    """Tests for the incremental log reader behind the popup's log view."""
+
+    def test_first_read_returns_the_header_and_an_offset(self):
+        blocking = FakeProcess(block=True)
+        with _runner([_entry()], popen=RecordingPopen(blocking)) as (runner, _config_dir, _popen, _):
+            runner.evaluate(_usage(10))
+
+            chunk = runner.log_tail('daily')
+
+            self.assertTrue(chunk['reset'])
+            self.assertIn('=== task daily ===', chunk['text'])
+            self.assertGreater(chunk['offset'], 0)
+            self.assertTrue(chunk['name'].startswith('daily-'))
+
+    def test_second_read_returns_only_what_was_appended(self):
+        blocking = FakeProcess(block=True)
+        with _runner([_entry()], popen=RecordingPopen(blocking)) as (runner, config_dir, _popen, _):
+            runner.evaluate(_usage(10))
+            first = runner.log_tail('daily')
+
+            log_path = config_dir / LOGS_DIRNAME / first['name']
+            with open(log_path, 'a', encoding='utf-8', newline='') as handle:
+                handle.write('progress line\n')
+
+            second = runner.log_tail('daily', first['offset'])
+
+            self.assertFalse(second['reset'])
+            self.assertEqual(second['text'], 'progress line\n')
+
+    def test_offset_past_the_end_restarts_the_tail(self):
+        """A replaced or truncated file must not silently return nothing."""
+        blocking = FakeProcess(block=True)
+        with _runner([_entry()], popen=RecordingPopen(blocking)) as (runner, _config_dir, _popen, _):
+            runner.evaluate(_usage(10))
+
+            chunk = runner.log_tail('daily', 10_000_000)
+
+            self.assertTrue(chunk['reset'])
+            self.assertIn('=== task daily ===', chunk['text'])
+
+    def test_reads_at_most_one_tail_chunk(self):
+        blocking = FakeProcess(block=True)
+        with _runner([_entry()], popen=RecordingPopen(blocking)) as (runner, config_dir, _popen, _):
+            runner.evaluate(_usage(10))
+            name = runner.log_tail('daily')['name']
+
+            with open(config_dir / LOGS_DIRNAME / name, 'a', encoding='utf-8') as handle:
+                handle.write('x' * (LOG_TAIL_BYTES * 2))
+
+            chunk = runner.log_tail('daily')
+
+            self.assertLessEqual(len(chunk['text'].encode('utf-8')), LOG_TAIL_BYTES)
+
+    def test_task_without_a_run_has_no_log(self):
+        with _runner([_entry()]) as (runner, _config_dir, _popen, _):
+            self.assertIsNone(runner.log_tail('daily'))
+
+    def test_unknown_task_has_no_log(self):
+        with _runner([_entry()]) as (runner, _config_dir, _popen, _):
+            self.assertIsNone(runner.log_tail('nope'))
+
+    def test_a_record_pointing_outside_the_log_dir_is_refused(self):
+        """The log view must not become a way to read arbitrary files."""
+        state = {'version': 1, 'tasks': {'daily': {
+            'started_at': '2026-08-10T22:04:11+00:00', 'finished_at': '2026-08-10T22:10:11+00:00',
+            'exit_code': 0, 'log': '../auto-scheduler-state.json',
+        }}}
+        with _runner([_entry()], state=state) as (runner, _config_dir, _popen, _):
+            self.assertIsNone(runner.log_tail('daily'))
 
 
 if __name__ == '__main__':

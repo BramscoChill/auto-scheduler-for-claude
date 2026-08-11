@@ -23,18 +23,27 @@ The application reads your existing Claude OAuth token from the local Claude CLI
 ## Local Storage
 
 Usage data is kept in memory only and discarded when the application closes. The optional settings
-file (`auto-scheduler-settings.json`) and the optional task file (`auto-scheduler-tasks.json`) are
-read-only to the application.
+file (`auto-scheduler-settings.json`) is read-only to the application. The optional task file
+(`auto-scheduler-tasks.json`) is read-only too, except when you add, edit, or delete a task in the
+popup's task editor - see the write list below.
 
-Without a task file, the application writes no files at all. When you create a task file, it writes
-exactly three paths, all inside your effective Claude config directory (`CLAUDE_CONFIG_DIR` when
-set, otherwise `~/.claude`):
+Until you create a task, the application writes no files at all. Once the task queue is in use, it
+writes exactly four paths, all inside your effective Claude config directory (`CLAUDE_CONFIG_DIR`
+when set, otherwise `~/.claude`):
 
 - `auto-scheduler-state.json` - which queued tasks have run, when they started and finished, their
-  exit codes, and their log file names.
+  exit codes, the five-hour utilization they started at, and their log file names.
 - `auto-scheduler-logs/` - the directory holding those logs.
 - `auto-scheduler-logs/<task-id>-<timestamp>.log` - one file per run, containing the combined
   standard output and standard error of that run.
+- `auto-scheduler-tasks.json` - the task file itself, **only** when you add, edit, or delete a task
+  in the popup's task editor.
+
+The first three are written in the background as tasks run. The task file is different: nothing
+writes it except an explicit action in the editor - no poll, no timer, no automatic clean-up. The
+write is refused outright if the file changed on disk after the editor read it, so an edit you made
+in a text editor in the meantime is never overwritten or merged, and the whole file is validated
+before anything is written.
 
 No other location on disk is written to.
 

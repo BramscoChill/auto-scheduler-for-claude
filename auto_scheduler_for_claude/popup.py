@@ -36,6 +36,9 @@ _SWP_NOSIZE = 0x0001
 _SWP_NOZORDER = 0x0004
 _SWP_NOACTIVATE = 0x0010
 _WM_QUIT = 0x0012
+_MB_OKCANCEL = 0x01
+_MB_ICONWARNING = 0x30
+_IDOK = 1
 
 
 class _MONITORINFO(ctypes.Structure):
@@ -70,6 +73,7 @@ def _usage_entries(usage: dict[str, Any]) -> list[tuple[str, dict[str, Any] | No
 
 def _snapshot_to_dict(
     snap: CacheSnapshot, installations: list[dict[str, str]] | None = None, next_poll_time: float | None = None,
+    queue: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Convert a CacheSnapshot to a JSON-serializable dict for the popup JS.
 
@@ -81,6 +85,10 @@ def _snapshot_to_dict(
         Pre-computed installation list, or None to detect now.
     next_poll_time : float or None
         Unix timestamp of the next scheduled API poll.
+    queue : dict or None
+        Pre-formatted task-queue block from ``AutoSchedulerForClaude
+        .queue_payload()``.  Built there rather than here because that is
+        where ``STATUS_*`` keys become locale strings.
     """
     # Profile - truthiness check (not `is not None`): hides the account section when the API
     # returns an empty or incomplete response, instead of rendering empty Email/Plan fields.
@@ -173,28 +181,44 @@ def _snapshot_to_dict(
         'extra': extra,
         'installations': installations,
         'status': status,
+        'queue': queue,
     }
 
 
-def _init_config(snap: CacheSnapshot, next_poll_time: float | None = None) -> dict[str, Any]:
+# Keys handed to the popup's JS as-is.  Listed rather than passing all of T so
+# the page cannot start depending on a string the popup does not own.
+_POPUP_TEXT_KEYS = (
+    'account', 'changelog', 'claude_code', 'duration_hm', 'duration_m', 'duration_s', 'email',
+    'extra_usage', 'pin_popup', 'plan', 'queue_browse', 'queue_cancel', 'queue_col_last_run',
+    'queue_col_result', 'queue_col_status', 'queue_col_task', 'queue_col_threshold', 'queue_col_timeout',
+    'queue_collapse', 'queue_delete', 'queue_delete_confirm', 'queue_detail_back', 'queue_detail_elapsed',
+    'queue_detail_log', 'queue_detail_no_log', 'queue_detail_started', 'queue_detail_started_usage',
+    'queue_disabled', 'queue_empty', 'queue_expand', 'queue_field_cwd', 'queue_field_description',
+    'queue_field_id', 'queue_field_prompt', 'queue_field_threshold', 'queue_field_timeout',
+    'queue_filter_active', 'queue_filter_all', 'queue_filter_done', 'queue_form_edit', 'queue_form_new',
+    'queue_new_task', 'queue_no_gate', 'queue_open_log', 'queue_permission_warning', 'queue_prompt_caveat',
+    'queue_prompt_file', 'queue_prompt_inline', 'queue_save', 'queue_save_edit', 'queue_stop',
+    'queue_stop_confirm', 'queue_threshold_high', 'queue_threshold_hint',
+    'queue_threshold_hint_wait', 'queue_threshold_low', 'queue_warn_already_run', 'status_next_update',
+    'status_refreshing', 'status_updated', 'status_updated_s', 'task_queue', 'unpin_popup', 'usage',
+)
+
+
+def _init_config(
+    snap: CacheSnapshot, next_poll_time: float | None = None,
+    queue: dict[str, Any] | None = None, expanded: bool = False,
+) -> dict[str, Any]:
     """Build the config object passed to JS ``init()`` after the page loads."""
     return {
         'colors': {
             'bg': BG, 'fg': FG, 'fg_dim': FG_DIM, 'fg_heading': FG_HEADING, 'fg_link': FG_LINK,
             'bar_bg': BAR_BG, 'bar_fg': BAR_FG, 'bar_fg_warn': BAR_FG_WARN, 'bar_divider': BAR_DIVIDER, 'bar_marker': BAR_MARKER,
         },
-        't': {
-            'title': T['popup_title'], 'account': T['account'], 'email': T['email'], 'plan': T['plan'],
-            'usage': T['usage'], 'extra_usage': T['extra_usage'],
-            'claude_code': T['claude_code'], 'changelog': T['changelog'],
-            'pin_popup': T['pin_popup'], 'unpin_popup': T['unpin_popup'],
-            'status_updated_s': T['status_updated_s'], 'status_updated': T['status_updated'],
-            'status_next_update': T['status_next_update'], 'status_refreshing': T['status_refreshing'],
-            'duration_hm': T['duration_hm'], 'duration_m': T['duration_m'], 'duration_s': T['duration_s'],
-        },
+        't': {'title': T['popup_title'], **{key: T[key] for key in _POPUP_TEXT_KEYS}},
         'app_version': __version__,
         'compact_hide': COMPACT_HIDE,
-        'data': _snapshot_to_dict(snap, next_poll_time=next_poll_time),
+        'expanded': expanded,
+        'data': _snapshot_to_dict(snap, next_poll_time=next_poll_time, queue=queue),
     }
 
 
@@ -216,6 +240,59 @@ class _PopupApi:
 
     def set_pinned(self, pinned: bool) -> bool:
         return self._popup._set_pinned(pinned)
+
+    def set_expanded(self, expanded: bool) -> bool:
+        return self._popup._set_expanded(expanded)
+
+    def set_modal(self, modal: bool) -> None:
+        """Suspend click-outside dismissal while the task editor is open.
+
+        Without this, clicking anywhere outside the popup - or the foreground
+        change a native file dialog causes - destroys the window and the
+        half-typed task with it.
+        """
+        self._popup._modal = bool(modal)
+
+    def confirm(self, message: str) -> bool:
+        """Ask the user to confirm a destructive action.
+
+        A native message box rather than an in-page dialog: it is the same
+        confirmation surface the quit-with-tasks-running prompt uses, and it
+        cannot be missed behind the popup.
+        """
+        popup = self._popup
+        previous = popup._modal
+        popup._modal = True
+        try:
+            return ctypes.windll.user32.MessageBoxW(0, message[:2000], T['popup_title'], _MB_OKCANCEL | _MB_ICONWARNING) == _IDOK
+        finally:
+            popup._modal = previous
+
+    def browse_folder(self, initial: str = '') -> str:
+        return self._popup._browse(webview.FOLDER_DIALOG, initial)
+
+    def browse_file(self, initial: str = '') -> str:
+        return self._popup._browse(webview.OPEN_DIALOG, initial)
+
+    # Task queue - every call below is a direct result of a click in the popup
+
+    def queue_registry(self) -> dict[str, Any]:
+        return self._popup.app.registry_read()
+
+    def queue_save(self, entry: dict[str, Any], index: int, stamp: list[float]) -> dict[str, Any]:
+        return self._popup.app.registry_save(entry, int(index), stamp)
+
+    def queue_delete(self, index: int, stamp: list[float]) -> dict[str, Any]:
+        return self._popup.app.registry_delete(int(index), stamp)
+
+    def queue_stop(self, task_id: str) -> bool:
+        return self._popup.app.stop_task(task_id)
+
+    def queue_log(self, task_id: str, offset: int = 0) -> dict[str, Any] | None:
+        return self._popup.app.task_log(task_id, int(offset))
+
+    def queue_open_log(self, task_id: str) -> bool:
+        return self._popup.app.open_task_log(task_id)
 
     def begin_drag(self) -> bool:
         return self._popup._begin_drag()
@@ -239,8 +316,10 @@ class _PopupApi:
 
         popup = self._popup
         with popup._geometry_lock:
-            if height == popup._last_height:
+            width = popup._effective_width()
+            if (width, height) == (popup._last_width, popup._last_height):
                 return
+            popup._last_width = width
             popup._last_height = height
             popup._resize_and_position(height)
             if not popup._shown:
@@ -254,8 +333,13 @@ class _PopupApi:
 class UsagePopup:
     """Dark-themed HTML popup window showing account info and usage bars."""
 
-    WIDTH = 340
+    # Two presets rather than a free size: the compact width is the tray-glance
+    # popup, the expanded one is the task-queue layout.  The expanded value is
+    # clamped to the monitor at use time - see _effective_width().
+    WIDTH_COMPACT = 340
+    WIDTH_EXPANDED = 940
     _CHECK_MS = 2000
+    _MARGIN = 12
 
     def __init__(self, app: AutoSchedulerForClaude) -> None:
         """Create and display a popup window with usage details.
@@ -278,23 +362,31 @@ class UsagePopup:
         self._closed = threading.Event()
         self._popup_hwnd = 0
         self._pump_tid = 0
+        # True while the task editor or a native dialog is up, which suspends
+        # click-outside dismissal so unsaved input cannot be destroyed.
+        self._modal = False
+        # Remembered on the app, not in the settings file, so reopening the
+        # popup keeps the last choice without writing to a read-only file.
+        self._expanded = bool(getattr(app, '_popup_expanded', False))
         # Serializes the resize/show geometry path across pywebview's
         # per-call bridge threads.
         self._geometry_lock = threading.Lock()
         initial_height = 400
-        # 0 means "no height reported yet": the first ResizeObserver report
+        # 0 means "no size reported yet": the first ResizeObserver report
         # must always count as a change so the window gets resized,
         # positioned, and shown even when the content is exactly
         # initial_height tall.
         self._last_height = 0
+        self._last_width = 0
         snap = app.cache.snapshot
         self._last_version = snap.version
+        self._last_queue_version = app.task_runner.version
 
         api = _PopupApi(self)
 
         self._window = webview.create_window(
             '', url=str(_POPUP_DIR / 'popup.html'),
-            width=self.WIDTH, height=initial_height,
+            width=self.WIDTH_COMPACT, height=initial_height,
             resizable=False, frameless=True, shadow=False,
             easy_drag=False,
             on_top=True, hidden=True,
@@ -309,7 +401,10 @@ class UsagePopup:
 
     def _on_loaded(self) -> None:
         """Inject config and show the window transparently for layout."""
-        config = _init_config(self.app.cache.snapshot, next_poll_time=self.app._next_poll_time)
+        config = _init_config(
+            self.app.cache.snapshot, next_poll_time=self.app._next_poll_time,
+            queue=self.app.queue_payload(), expanded=self._expanded,
+        )
         self._window.evaluate_js(f'init({json.dumps(config)})')
 
         self._popup_hwnd = self._window.native.Handle.ToInt32()
@@ -359,7 +454,7 @@ class UsagePopup:
         self._pump_tid = this_thread
 
         def _post_quit() -> None:
-            if self._shown and not self._pinned:
+            if self._shown and not self._pinned and not self._modal:
                 ctypes.windll.user32.PostThreadMessageW(this_thread, _WM_QUIT, 0, 0)
 
         # -- Shared argtypes for CallNextHookEx --
@@ -489,6 +584,43 @@ class UsagePopup:
             self._moved_while_pinned = False
         return self._pinned
 
+    def _set_expanded(self, expanded: bool) -> bool:
+        """Switch between the compact and the task-queue width.
+
+        The resize is applied here rather than left to the ResizeObserver:
+        only the width changes when the taller layout happens to report the
+        same height, and ``report_height`` would then see no change at all.
+        """
+        self._expanded = bool(expanded)
+        self.app._popup_expanded = self._expanded
+        with self._geometry_lock:
+            if self._last_height:
+                self._last_width = self._effective_width()
+                self._resize_and_position(self._last_height)
+
+        return self._expanded
+
+    def _browse(self, dialog_type: int, initial: str) -> str:
+        """Show a native folder/file picker and return the chosen path.
+
+        ``_modal`` is held for the duration: the dialog takes the foreground,
+        which the dismiss watcher would otherwise read as "the user clicked
+        away" and use to destroy the popup mid-pick.
+        """
+        previous = self._modal
+        self._modal = True
+        try:
+            result = self._window.create_file_dialog(dialog_type, directory=initial or '')
+        except Exception:
+            return ''
+        finally:
+            self._modal = previous
+
+        if not result:
+            return ''
+
+        return str(result[0])
+
     def _begin_drag(self) -> bool:
         """Anchor the cursor to the window for a pinned-popup drag.
 
@@ -545,7 +677,7 @@ class UsagePopup:
         current_dpi = ctypes.windll.user32.GetDpiForWindow(self._popup_hwnd) or ctypes.windll.user32.GetDpiForSystem()
         if current_dpi != self._drag_start_dpi:
             with self._geometry_lock:
-                self._window.resize(self.WIDTH, self._last_height)
+                self._window.resize(self._effective_width(), self._last_height)
 
     def _update_loop(self) -> None:
         """Poll for data changes and push updates to the popup."""
@@ -558,16 +690,28 @@ class UsagePopup:
             try:
                 snap = self.app.cache.snapshot
                 next_poll_time = self.app._next_poll_time
-                if snap.version == self._last_version and next_poll_time == last_next_poll_time:
+                # The queue has a version of its own: a task starting, ending,
+                # or being edited changes nothing in the usage cache.
+                queue_version = self.app.task_runner.version
+                unchanged = (
+                    snap.version == self._last_version
+                    and next_poll_time == last_next_poll_time
+                    and queue_version == self._last_queue_version
+                )
+                if unchanged:
                     continue
                 if snap.version != self._last_version:
                     cached_installations = [{'name': i.name, 'version': i.version} for i in find_installations()]
-                data = _snapshot_to_dict(snap, installations=cached_installations, next_poll_time=next_poll_time)
+                data = _snapshot_to_dict(
+                    snap, installations=cached_installations, next_poll_time=next_poll_time,
+                    queue=self.app.queue_payload(),
+                )
                 self._window.evaluate_js(f'updateData({json.dumps(data)})')
                 # Commit the markers only after a successful push, so a failed
                 # update is retried on the next tick instead of being skipped
                 # by the dedup check until the next data change.
                 self._last_version = snap.version
+                self._last_queue_version = queue_version
                 last_next_poll_time = next_poll_time
             except Exception:
                 # A transient failure (snapshot conversion, filesystem scan,
@@ -575,6 +719,34 @@ class UsagePopup:
                 # a pinned popup can live for days.  The destroyed-window
                 # case exits via the _running flag on the next iteration.
                 continue
+
+    def _scale(self) -> float:
+        """Return the popup window's DPI scale factor."""
+        dpi = ctypes.windll.user32.GetDpiForWindow(self._popup_hwnd) or ctypes.windll.user32.GetDpiForSystem()
+        return dpi / _BASELINE_DPI
+
+    def _monitor_rects(self, hwnd: int) -> tuple[ctypes.wintypes.RECT, ctypes.wintypes.RECT]:
+        """Return the ``(monitor, work area)`` rects of the monitor owning *hwnd*."""
+        hmon = ctypes.windll.user32.MonitorFromWindow(hwnd, 2)  # MONITOR_DEFAULTTONEAREST
+        mon_info = _MONITORINFO()
+        mon_info.cbSize = ctypes.sizeof(_MONITORINFO)
+        ctypes.windll.user32.GetMonitorInfoW(hmon, ctypes.byref(mon_info))
+        return mon_info.rcMonitor, mon_info.rcWork
+
+    def _effective_width(self) -> int:
+        """Return the current width in logical pixels, clamped to the monitor.
+
+        The expanded layout is wider than a 1366px or heavily-scaled display
+        can show.  A frameless popup with no taskbar button that hangs off the
+        screen edge cannot be recovered, so the width gives way rather than
+        the window position.
+        """
+        if not self._expanded:
+            return self.WIDTH_COMPACT
+
+        _mon, work = self._monitor_rects(self._popup_hwnd)
+        available = int((work.right - work.left) / self._scale()) - 2 * self._MARGIN
+        return max(self.WIDTH_COMPACT, min(self.WIDTH_EXPANDED, available))
 
     def _tray_position(self, physical_width: int, physical_height: int) -> tuple[int, int]:
         """Calculate popup position near the system tray.
@@ -593,30 +765,41 @@ class UsagePopup:
             must multiply by the DPI scale factor.
         """
         tray_hwnd = ctypes.windll.user32.FindWindowW('Shell_TrayWnd', None)
-        hmon = ctypes.windll.user32.MonitorFromWindow(tray_hwnd, 2)  # MONITOR_DEFAULTTONEAREST
-
-        mon_info = _MONITORINFO()
-        mon_info.cbSize = ctypes.sizeof(_MONITORINFO)
-        ctypes.windll.user32.GetMonitorInfoW(hmon, ctypes.byref(mon_info))
-        mon = mon_info.rcMonitor
-        work = mon_info.rcWork
-
-        dpi = ctypes.windll.user32.GetDpiForWindow(self._popup_hwnd) or ctypes.windll.user32.GetDpiForSystem()
-        scale = dpi / _BASELINE_DPI
-
-        margin = 12
+        mon, work = self._monitor_rects(tray_hwnd)
+        scale = self._scale()
 
         if work.left > mon.left:    # left-side taskbar
-            x = work.left + margin
+            x = work.left + self._MARGIN
         else:
-            x = work.right - physical_width - margin
+            x = work.right - physical_width - self._MARGIN
 
         if work.top > mon.top:      # top taskbar
-            y = work.top + margin
+            y = work.top + self._MARGIN
         else:
-            y = work.bottom - physical_height - margin
+            y = work.bottom - physical_height - self._MARGIN
 
         return int(x / scale), int(y / scale)
+
+    def _clamp_into_work_area(self, physical_width: int, physical_height: int) -> None:
+        """Pull a moved pinned popup back on-screen after it changed size.
+
+        Expanding adds hundreds of pixels to a window the user has already
+        dragged somewhere; without this the queue can end up past the screen
+        edge, on a window that has no taskbar button to drag it back with.
+        Position is only ever corrected inward - a popup that still fits stays
+        exactly where the user put it.
+        """
+        rect = ctypes.wintypes.RECT()
+        ctypes.windll.user32.GetWindowRect(self._popup_hwnd, ctypes.byref(rect))
+        _mon, work = self._monitor_rects(self._popup_hwnd)
+
+        x = max(work.left, min(rect.left, work.right - physical_width))
+        y = max(work.top, min(rect.top, work.bottom - physical_height))
+        if (x, y) == (rect.left, rect.top):
+            return
+
+        scale = self._scale()
+        self._window.move(int(x / scale), int(y / scale))
 
     def _resize_and_position(self, height: int) -> None:
         """Resize the window and reposition it near the system tray.
@@ -630,12 +813,13 @@ class UsagePopup:
         calculate the correct logical position against the physical work-area
         coordinates returned by Win32.
         """
-        dpi = ctypes.windll.user32.GetDpiForWindow(self._popup_hwnd) or ctypes.windll.user32.GetDpiForSystem()
-        scale = dpi / _BASELINE_DPI
-        physical_width = int(self.WIDTH * scale)
+        width = self._effective_width()
+        scale = self._scale()
+        physical_width = int(width * scale)
         physical_height = int(height * scale)
-        self._window.resize(self.WIDTH, height)
+        self._window.resize(width, height)
         if self._pinned and self._moved_while_pinned:
+            self._clamp_into_work_area(physical_width, physical_height)
             return
         x, y = self._tray_position(physical_width, physical_height)
         self._window.move(x, y)

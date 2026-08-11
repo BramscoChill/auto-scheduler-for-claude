@@ -52,6 +52,8 @@
         background: #1e1e1e;
         visibility: hidden;
     }
+
+    iframe.expanded { width: 940px; }
 </style>
 </head>
 <body>
@@ -63,6 +65,7 @@
     <button onclick="loadPreset('refreshing')">Refreshing (hours)</button>
     <button onclick="loadPreset('loading')">Initial load</button>
     <button onclick="randomize()">Randomize bars</button>
+    <button onclick="toggleExpanded()">Toggle expanded</button>
 </div>
 
 <iframe id="popup"></iframe>
@@ -152,15 +155,63 @@ const now = () => Date.now() / 1000;
 let currentLang = 'en';
 let currentLocale = null;
 let currentPreset = 'full';
+let currentExpanded = false;
 
-// Map locale JSON keys onto the compact translation object popup.js expects.
+// popup.py hands the page a curated subset of the locale; the preview passes
+// everything, so a newly added key shows up here without a change to this file.
 function buildTranslations(loc) {
+    return { ...loc, title: loc.popup_title };
+}
+
+// A task queue matching what app.queue_payload() produces, so the expanded
+// layout can be inspected without a real registry.
+function buildQueue(loc) {
+    const task = (over) => ({
+        id: 'daily', name: 'Standard daily agent tick', cwd: 'D:/Projecten/trading-agent',
+        status: 'waiting', status_text: loc.task_state_waiting, glyph: '\u25cb', failed: false, active: true,
+        threshold_pct: 40, threshold_text: loc.queue_threshold.replace('{pct}', 40),
+        timeout_text: loc.queue_timeout.replace('{min}', 180), last_run_text: '', result_text: '',
+        started_text: '', started_epoch: null, elapsed_text: '', started_usage_text: '',
+        log_name: '', has_log: false, can_stop: false, can_delete: true, ...over,
+    });
+
+    const tasks = [
+        task({ id: 'daily', status: 'running', status_text: loc.task_state_running, glyph: '\u25b6',
+               started_epoch: now() - 4320, started_text: '22:04', started_usage_text: '31%',
+               log_name: 'daily-20260810-220411.log', has_log: true, can_stop: true, can_delete: false }),
+        task({ id: 'research', name: 'Research-only tick', threshold_pct: 20,
+               threshold_text: loc.queue_threshold.replace('{pct}', 20),
+               result_text: loc.queue_needs_headroom.replace('{pct}', 18) }),
+        task({ id: 'nightly-tests', name: 'Run full test sweep', status: 'pending', glyph: '\u25d4',
+               status_text: loc.task_state_pending, threshold_pct: 80,
+               threshold_text: loc.queue_threshold.replace('{pct}', 80), result_text: loc.task_state_pending }),
+        task({ id: 'changelog', name: 'Draft changelog entries', status: 'done', glyph: '\u2714',
+               status_text: loc.task_state_done.replace('{code}', 0), active: false,
+               last_run_text: loc.time_yesterday.replace('{clock}', '03:12'),
+               result_text: loc.queue_result_duration.replace('{code}', 0).replace('{duration}', '6m'),
+               log_name: 'changelog-20260809-031200.log', has_log: true }),
+        task({ id: 'refactor-pass', name: 'Refactor sweep', status: 'done', glyph: '\u2716', failed: true,
+               status_text: loc.task_state_done.replace('{code}', 124), active: false,
+               last_run_text: loc.time_weekday.replace('{day}', loc.weekdays[0]).replace('{clock}', '02:00'),
+               result_text: loc.queue_result_duration.replace('{code}', 124).replace('{duration}', '1h 30m') }),
+    ];
+
+    const active = tasks.filter((entry) => entry.active).length;
     return {
-        title: loc.popup_title, account: loc.account, email: loc.email, plan: loc.plan,
-        usage: loc.usage, extra_usage: loc.extra_usage, claude_code: loc.claude_code, changelog: loc.changelog,
-        status_updated_s: loc.status_updated_s, status_updated: loc.status_updated,
-        status_next_update: loc.status_next_update, status_refreshing: loc.status_refreshing,
-        duration_hm: loc.duration_hm, duration_m: loc.duration_m, duration_s: loc.duration_s,
+        disabled: false, draining: false,
+        summary_text: loc.queue_summary.replace('{running}', 1).replace('{waiting}', active - 1).replace('{free}', 0),
+        counts: { all: tasks.length, active, done: tasks.length - active },
+        gate: {
+            key: 'five_hour', pct: 38, pct_text: '38%', fill_pct: 0.38, warn: false,
+            caption: loc.queue_gate_caption.replace('{label}', loc.session_label.replace('{suffix}', '5hr')),
+            reset_text: loc.resets_in.replace('{duration}', '2h 41m').replace('{clock}', '14:30'),
+            dividers: [0.2, 0.4, 0.6, 0.8], marker_rel: 0.55,
+        },
+        markers: tasks.filter((entry) => entry.active).map((entry) => ({
+            rel: entry.threshold_pct / 100, label: entry.id,
+            pct_text: entry.threshold_pct + '%', met: 38 <= entry.threshold_pct,
+        })).sort((a, b) => a.rel - b.rel),
+        tasks,
     };
 }
 
@@ -200,6 +251,7 @@ function resolveData(name, loc) {
     }));
 
     const extra = preset.extra ? {
+        has_limit: true,
         pct_text: preset.extra.pct + '%',
         fill_pct: preset.extra.pct / 100,
         spent_text: loc.extra_usage_spent.replace('{used}', preset.extra.used).replace('{limit}', preset.extra.limit),
@@ -210,7 +262,8 @@ function resolveData(name, loc) {
         status = { text: loc[status.staticKey], is_error: status.is_error, refreshing: status.refreshing };
     }
 
-    return { profile: preset.profile, usage, extra, installations: preset.installations || [], status };
+    const queue = name === 'loading' ? null : buildQueue(loc);
+    return { profile: preset.profile, usage, extra, installations: preset.installations || [], status, queue };
 }
 
 // Try both layouts: server rooted at the repo (dev.html under
@@ -241,6 +294,27 @@ async function applyLanguage(code) {
     await reloadFrame();
     win().pywebview = { api: { close() {}, open_url() {},
         set_pinned(pinned) { return Promise.resolve(pinned); },
+        set_expanded(on) { iframe.classList.toggle('expanded', on); return Promise.resolve(on); },
+        set_modal() {},
+        confirm(message) { return Promise.resolve(window.confirm(message)); },
+        browse_folder() { return Promise.resolve(''); },
+        browse_file() { return Promise.resolve(''); },
+        queue_registry() {
+            return Promise.resolve({
+                entries: [{ id: 'daily', description: 'Standard daily agent tick',
+                            prompt: 'Read agent_system/core_prompt.md and execute the tick.',
+                            cwd: 'D:/Projecten/trading-agent', max_usage_percent: 40, timeout_minutes: 180 }],
+                stamp: [1, 1], completed_ids: ['changelog'], error: null,
+            });
+        },
+        queue_save() { return Promise.resolve({ ok: true, error: null, errors: [] }); },
+        queue_delete() { return Promise.resolve({ ok: true, error: null, errors: [] }); },
+        queue_stop() { return Promise.resolve(true); },
+        queue_open_log() { return Promise.resolve(true); },
+        queue_log(taskId, offset) {
+            const text = offset ? '' : '=== task daily ===\nstarted: 2026-08-10T22:04:11+00:00\n';
+            return Promise.resolve({ text, offset: text.length, reset: !offset, name: 'daily-20260810-220411.log' });
+        },
         begin_drag() { return Promise.resolve(true); },
         drag() { return Promise.resolve(true); },
         end_drag() {},
@@ -251,7 +325,17 @@ async function applyLanguage(code) {
     // Demo set so toggling the pin button previews compact hiding of both
     // whole sections and an individual usage bar.
     const compactHide = ['account', 'extra_usage', 'claude_code', 'status', 'seven_day_opus'];
-    win().init({ colors: COLORS, t: buildTranslations(currentLocale), app_version: '1.13.0', compact_hide: compactHide, data: resolveData(currentPreset, currentLocale) });
+    iframe.classList.toggle('expanded', currentExpanded);
+    win().init({
+        colors: COLORS, t: buildTranslations(currentLocale), app_version: '1.13.0',
+        compact_hide: compactHide, expanded: currentExpanded,
+        data: resolveData(currentPreset, currentLocale),
+    });
+}
+
+function toggleExpanded() {
+    currentExpanded = !currentExpanded;
+    applyLanguage(currentLang);
 }
 
 function loadPreset(name) {

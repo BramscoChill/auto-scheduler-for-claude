@@ -35,7 +35,7 @@ from .settings import MAX_CONCURRENT_TASKS, TASK_COMMAND
 from .tasks import PRINT_MODE_CAVEAT, Task, load_tasks, sanitize_task_id, select_runnable
 
 __all__ = [
-    'EXIT_KILLED', 'EXIT_TIMEOUT', 'LOGS_DIRNAME', 'STATE_FILENAME',
+    'EXIT_KILLED', 'EXIT_STOPPED', 'EXIT_TIMEOUT', 'LOG_TAIL_BYTES', 'LOGS_DIRNAME', 'STATE_FILENAME',
     'STATUS_DONE', 'STATUS_INTERRUPTED', 'STATUS_PENDING', 'STATUS_RUNNING', 'STATUS_WAITING',
     'TaskRunner',
 ]
@@ -47,6 +47,11 @@ STATE_VERSION = 1
 # Exit codes recorded for runs the app itself ended.
 EXIT_TIMEOUT = 124                             # timeout_minutes elapsed, child killed
 EXIT_KILLED = 130                              # user quit and chose to kill running tasks
+EXIT_STOPPED = 143                             # user stopped this one task from the popup
+
+# How much of a log file one tail read returns.  Bounds both the first read of
+# a long-running task's log and every incremental read after it.
+LOG_TAIL_BYTES = 64 * 1024
 
 STATUS_WAITING = 'waiting'                     # five-hour utilization still above the threshold
 STATUS_PENDING = 'pending'                     # threshold met, but every slot is occupied
@@ -95,6 +100,11 @@ class TaskRunner:
         self._running: dict[str, _Run] = {}
         self._records: dict[str, dict[str, Any]] = {}
 
+        # Bumped on every change a viewer would want to see.  The popup dedups
+        # its refresh on the cache's snapshot version, which does not move when
+        # a task starts or ends, so the queue needs a version of its own.
+        self._version = 0
+
         # Last five-hour utilization seen by evaluate(), so the tray menu can
         # tell "waiting for quota" apart from "waiting for a free slot".
         self._last_five_hour_pct: float | None = None
@@ -109,6 +119,12 @@ class TaskRunner:
     def tasks(self) -> list[Task]:
         """The loaded registry, in file order.  Empty when the queue is off."""
         return self._tasks
+
+    @property
+    def version(self) -> int:
+        """Counter bumped on every queue change, for change detection."""
+        with self._lock:
+            return self._version
 
     def has_tasks(self) -> bool:
         """Return whether a task file was loaded (drives tray-menu visibility)."""
@@ -151,6 +167,15 @@ class TaskRunner:
 
         return STATUS_WAITING
 
+    def completed_ids(self) -> list[str]:
+        """Return every id with a state record, in insertion order.
+
+        One-shot is keyed on this list, so the task editor uses it to warn
+        that a reused id will never start again.
+        """
+        with self._lock:
+            return list(self._records)
+
     def exit_code(self, task_id: str) -> int | None:
         """Return the recorded exit code of a finished task, or None."""
         with self._lock:
@@ -166,6 +191,123 @@ class TaskRunner:
 
         path = self._logs_dir() / log_name
         return path if path.is_file() else None
+
+    def snapshot(self) -> dict[str, Any]:
+        """Return the whole queue state in one lock hold, for the popup.
+
+        One call rather than a method per column: the rows must be mutually
+        consistent, and a task that finishes between two separate reads would
+        otherwise show as running in one column and done in the next.
+
+        Returns raw values and ``STATUS_*`` keys only - localizing them is the
+        caller's job, so this module stays free of UI text.
+        """
+        with self._lock:
+            rows = [self._row(task) for task in self._tasks]
+            return {
+                'version': self._version,
+                'disabled': self._disabled,
+                'draining': self._draining,
+                'running_count': len(self._running),
+                'max_concurrent': MAX_CONCURRENT_TASKS,
+                'five_hour_pct': self._last_five_hour_pct,
+                'tasks': rows,
+            }
+
+    def stop(self, task_id: str) -> bool:
+        """Terminate one running task and record :data:`EXIT_STOPPED`.
+
+        Deliberately separate from :meth:`kill_all`: this must not set the
+        drain flag, because stopping one task is not a decision to stop
+        starting others.  Like ``kill_all`` the kill and the wait happen
+        outside the lock, so a watcher thread finalizing at the same moment is
+        never blocked.
+
+        Returns
+        -------
+        bool
+            True when a live process was found and terminated.
+        """
+        with self._lock:
+            run = self._running.get(task_id)
+            if run is None:
+                return False
+            run.forced_exit_code = EXIT_STOPPED
+
+        try:
+            run.process.kill()
+            run.process.wait(timeout=5)
+        except Exception:
+            traceback.print_exc()
+
+        self._finalize(run, EXIT_STOPPED)
+        return True
+
+    def reload(self, tasks: list[Task]) -> None:
+        """Swap in a registry the caller has already validated.
+
+        Takes validated tasks rather than re-reading the file: the editor has
+        just written content it validated, and a second read could pick up a
+        third party's edit or pop a second error box for the same problem.
+
+        Only the task set changes.  Completed records, running processes, the
+        disabled flag, and the last quota reading are all untouched: a reload
+        must never resurrect a completed task or orphan a live one.
+        """
+        with self._lock:
+            self._tasks = list(tasks)
+            self._bump()
+
+    def log_tail(self, task_id: str, offset: int = 0) -> dict[str, Any] | None:
+        """Read up to :data:`LOG_TAIL_BYTES` of one run's log from *offset*.
+
+        The path is resolved only through the task's own state record, never
+        from a caller-supplied string, and a resolved path that escapes the
+        logs directory is refused - the popup's log viewer must not become a
+        way to read arbitrary files.
+
+        Parameters
+        ----------
+        task_id : str
+            Id of the task whose log to read.
+        offset : int
+            Byte offset to continue from.  ``0`` starts with the last
+            :data:`LOG_TAIL_BYTES` of the file.
+
+        Returns
+        -------
+        dict or None
+            ``{'text', 'offset', 'reset', 'name'}``, or None when the task has
+            no readable log.  ``reset`` is True when the caller's offset was
+            past the end of the file (truncated or replaced) and the returned
+            text starts a fresh tail.
+        """
+        path = self.log_path(task_id)
+        if path is None:
+            return None
+
+        logs_dir = self._logs_dir()
+        try:
+            path.resolve().relative_to(logs_dir.resolve())
+        except (OSError, ValueError):
+            return None
+
+        try:
+            size = path.stat().st_size
+            reset = offset <= 0 or offset > size
+            start = max(0, size - LOG_TAIL_BYTES) if reset else offset
+            with open(path, 'rb') as handle:
+                handle.seek(start)
+                chunk = handle.read(LOG_TAIL_BYTES)
+        except OSError:
+            return None
+
+        return {
+            'text': chunk.decode('utf-8', errors='replace'),
+            'offset': start + len(chunk),
+            'reset': reset,
+            'name': path.name,
+        }
 
     # Evaluation
 
@@ -187,7 +329,11 @@ class TaskRunner:
             return
 
         with self._lock:
-            self._last_five_hour_pct = five_hour_pct
+            if five_hour_pct != self._last_five_hour_pct:
+                # Waiting/pending is derived from this value, so a change moves
+                # rows between those two states without anything else happening.
+                self._last_five_hour_pct = five_hour_pct
+                self._bump()
             if self._disabled or self._draining or not self._tasks:
                 return
 
@@ -232,6 +378,33 @@ class TaskRunner:
             self._finalize(run, EXIT_KILLED)
 
     # Internals
+
+    def _bump(self) -> None:
+        """Mark the queue state as changed.  Caller holds the lock."""
+        self._version += 1
+
+    def _row(self, task: Task) -> dict[str, Any]:
+        """Return one task's full state for :meth:`snapshot`.  Caller holds the lock."""
+        record = self._records.get(task.id) or {}
+        run = self._running.get(task.id)
+        log_name = record.get('log')
+
+        return {
+            'id': task.id,
+            'description': task.description,
+            'cwd': task.cwd,
+            'prompt_file': task.prompt_file,
+            'max_usage_percent': task.max_usage_percent,
+            'timeout_minutes': task.timeout_minutes,
+            'status': self._status(task),
+            'exit_code': record.get('exit_code'),
+            'started_at': record.get('started_at'),
+            'finished_at': record.get('finished_at'),
+            'started_at_utilization': record.get('started_at_utilization'),
+            'log': log_name,
+            'has_log': bool(log_name) and (self._logs_dir() / log_name).is_file(),
+            'elapsed_seconds': (time.monotonic() - run.started_monotonic) if run is not None else None,
+        }
 
     def _status(self, task: Task) -> str:
         """Return the status key for *task*.  Caller holds the lock.
@@ -305,6 +478,7 @@ class TaskRunner:
         now = datetime.now(timezone.utc)
         log_name = f'{sanitize_task_id(task.id)}-{now.strftime("%Y%m%d-%H%M%S")}.log'
         logs_dir = self._logs_dir()
+        started_at_utilization = (data.get('five_hour') or {}).get('utilization')
 
         try:
             logs_dir.mkdir(parents=True, exist_ok=True)
@@ -323,7 +497,10 @@ class TaskRunner:
                 log_handle.write(f'prompt:  {task.prompt_file}\n')
             log_handle.write(f'command: {command}\n')
             log_handle.write(f'cwd:     {working_dir or os.getcwd()}\n')
-            log_handle.write(f'timeout: {"none" if task.timeout_minutes == 0 else f"{task.timeout_minutes:g} min"}\n\n')
+            log_handle.write(f'timeout: {"none" if task.timeout_minutes == 0 else f"{task.timeout_minutes:g} min"}\n')
+            if started_at_utilization is not None:
+                log_handle.write(f'usage:   {started_at_utilization:.0f}% of the five-hour window\n')
+            log_handle.write('\n')
             log_handle.flush()
 
             process = subprocess.Popen(
@@ -343,8 +520,10 @@ class TaskRunner:
         self._running[task.id] = run
         self._records[task.id] = {
             'started_at': run.started_at, 'finished_at': None, 'exit_code': None, 'log': log_name,
+            'started_at_utilization': started_at_utilization,
         }
         self._write_state()
+        self._bump()
 
         threading.Thread(target=self._watch, args=(run,), daemon=True).start()
         return True
@@ -395,12 +574,15 @@ class TaskRunner:
             duration = time.monotonic() - run.started_monotonic
             finished_at = datetime.now(timezone.utc).isoformat()
 
+            previous = self._records.get(run.task.id) or {}
             self._running.pop(run.task.id, None)
             self._records[run.task.id] = {
                 'started_at': run.started_at, 'finished_at': finished_at,
                 'exit_code': exit_code, 'log': run.log_name,
+                'started_at_utilization': previous.get('started_at_utilization'),
             }
             self._write_state()
+            self._bump()
 
             drained = self._draining and not self._running
 
@@ -425,4 +607,5 @@ class TaskRunner:
             return
 
         self._disabled = True
+        self._bump()
         ctypes.windll.user32.MessageBoxW(0, message[:2000], 'Auto Scheduler for Claude - Task Queue Error', 0x30)

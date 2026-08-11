@@ -8,14 +8,17 @@ and _init_config.
 from __future__ import annotations
 
 import ctypes
+import re
 import threading
 import time
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from auto_scheduler_for_claude.cache import CacheSnapshot
+from auto_scheduler_for_claude.i18n import T
 from auto_scheduler_for_claude.popup import (
-    UsagePopup, _BASELINE_DPI, _MONITORINFO, _SWP_NOACTIVATE, _SWP_NOSIZE, _SWP_NOZORDER,
+    UsagePopup, _BASELINE_DPI, _MONITORINFO, _POPUP_TEXT_KEYS, _SWP_NOACTIVATE, _SWP_NOSIZE, _SWP_NOZORDER,
     _init_config, _snapshot_to_dict, _usage_entries,
 )
 
@@ -509,9 +512,9 @@ class TestSnapshotToDict(unittest.TestCase):
     # -- top-level dict structure --
 
     def test_all_top_level_keys_present(self):
-        """Result always has profile, usage, extra, installations, status."""
+        """Result always has profile, usage, extra, installations, status, queue."""
         result = _snapshot_to_dict(_snap(), installations=[])
-        self.assertEqual(set(result.keys()), {'profile', 'usage', 'extra', 'installations', 'status'})
+        self.assertEqual(set(result.keys()), {'profile', 'usage', 'extra', 'installations', 'status', 'queue'})
 
 
 # ---------------------------------------------------------------------------
@@ -522,9 +525,9 @@ class TestInitConfig(unittest.TestCase):
     """Tests for _init_config - builds the JS init() config object."""
 
     def test_top_level_keys(self):
-        """Config has colors, t (translations), app_version, compact_hide, and data."""
+        """Config has colors, t, app_version, compact_hide, expanded, and data."""
         config = _init_config(_snap())
-        self.assertEqual(set(config.keys()), {'colors', 't', 'app_version', 'compact_hide', 'data'})
+        self.assertEqual(set(config.keys()), {'colors', 't', 'app_version', 'compact_hide', 'expanded', 'data'})
 
     @patch('auto_scheduler_for_claude.popup.COMPACT_HIDE', ['account', 'seven_day_opus'])
     def test_compact_hide_from_settings(self):
@@ -585,7 +588,7 @@ class TestInitConfig(unittest.TestCase):
         snap = _snap(profile={'account': {'email': 'a@b.com'}, 'organization': {}})
         config = _init_config(snap)
         self.assertEqual(config['data']['profile']['email'], 'a@b.com')
-        self.assertEqual(set(config['data'].keys()), {'profile', 'usage', 'extra', 'installations', 'status'})
+        self.assertEqual(set(config['data'].keys()), {'profile', 'usage', 'extra', 'installations', 'status', 'queue'})
 
 
 # ---------------------------------------------------------------------------
@@ -675,7 +678,7 @@ class TestPinState(unittest.TestCase):
 
     def test_end_drag_reasserts_size_on_dpi_change(self):
         popup = object.__new__(UsagePopup)
-        popup.WIDTH = UsagePopup.WIDTH
+        popup._expanded = False
         popup._popup_hwnd = 12345
         popup._dragging = True
         popup._drag_start_dpi = 96
@@ -687,11 +690,11 @@ class TestPinState(unittest.TestCase):
             popup._end_drag()
 
         self.assertFalse(popup._dragging)
-        popup._window.resize.assert_called_once_with(UsagePopup.WIDTH, 500)
+        popup._window.resize.assert_called_once_with(UsagePopup.WIDTH_COMPACT, 500)
 
     def test_end_drag_keeps_size_without_dpi_change(self):
         popup = object.__new__(UsagePopup)
-        popup.WIDTH = UsagePopup.WIDTH
+        popup._expanded = False
         popup._popup_hwnd = 12345
         popup._dragging = True
         popup._drag_start_dpi = 96
@@ -1102,7 +1105,7 @@ class TestResizeAndPosition(unittest.TestCase):
     def _call(self, css_height, dpi):
         """Call _resize_and_position and capture the resize/move arguments."""
         popup = object.__new__(UsagePopup)
-        popup.WIDTH = UsagePopup.WIDTH
+        popup._expanded = False
         popup._popup_hwnd = 12345
         popup._pinned = False
         popup._moved_while_pinned = False
@@ -1167,7 +1170,7 @@ class TestResizeAndPosition(unittest.TestCase):
     def test_falls_back_to_system_dpi_when_window_dpi_unavailable(self):
         """When GetDpiForWindow returns 0, GetDpiForSystem is used as fallback."""
         popup = object.__new__(UsagePopup)
-        popup.WIDTH = UsagePopup.WIDTH
+        popup._expanded = False
         popup._popup_hwnd = 12345
         popup._pinned = False
         popup._moved_while_pinned = False
@@ -1199,20 +1202,132 @@ class TestResizeAndPosition(unittest.TestCase):
 
     def test_pinned_moved_popup_resizes_without_snapping_to_tray(self):
         """A moved pinned popup keeps its position when content height changes."""
-        popup = object.__new__(UsagePopup)
-        popup.WIDTH = UsagePopup.WIDTH
-        popup._popup_hwnd = 12345
-        popup._pinned = True
-        popup._moved_while_pinned = True
-
-        mock_window = MagicMock()
-        popup._window = mock_window
-
-        with patch('ctypes.windll.user32.GetDpiForWindow', return_value=_BASELINE_DPI):
-            popup._resize_and_position(500)
+        mock_window = _call_pinned_moved_resize(window_left=100, window_top=100, height=500)
 
         mock_window.resize.assert_called_once_with(340, 500)
         mock_window.move.assert_not_called()
+
+    def test_pinned_moved_popup_is_pulled_back_when_it_no_longer_fits(self):
+        """Growing to the expanded width must not push the popup off-screen.
+
+        A frameless popup has no taskbar button, so one that lands past the
+        work area cannot be dragged back.
+        """
+        mock_window = _call_pinned_moved_resize(window_left=1400, window_top=900, height=500, expanded=True)
+
+        # 1920 wide work area, 940 wide window: the furthest left edge that fits.
+        mock_window.move.assert_called_once_with(1920 - 940, 1040 - 500)
+
+
+def _call_pinned_moved_resize(window_left, window_top, height, expanded=False):
+    """Run _resize_and_position for a pinned popup the user has dragged."""
+    popup = object.__new__(UsagePopup)
+    popup._expanded = expanded
+    popup._popup_hwnd = 12345
+    popup._pinned = True
+    popup._moved_while_pinned = True
+
+    mock_window = MagicMock()
+    popup._window = mock_window
+
+    def fill_mon_info(_hmon, ptr):
+        info = ctypes.cast(ptr, ctypes.POINTER(_MONITORINFO)).contents
+        info.cbSize = ctypes.sizeof(_MONITORINFO)
+        info.rcMonitor.left, info.rcMonitor.top = 0, 0
+        info.rcMonitor.right, info.rcMonitor.bottom = 1920, 1080
+        info.rcWork.left, info.rcWork.top = 0, 0
+        info.rcWork.right, info.rcWork.bottom = 1920, 1040
+
+    def fill_window_rect(_hwnd, ptr):
+        rect = ctypes.cast(ptr, ctypes.POINTER(ctypes.wintypes.RECT)).contents
+        rect.left, rect.top = window_left, window_top
+        rect.right, rect.bottom = window_left + 340, window_top + height
+
+    with patch('ctypes.windll.user32.GetDpiForWindow', return_value=_BASELINE_DPI), \
+         patch('ctypes.windll.user32.MonitorFromWindow', return_value=11111), \
+         patch('ctypes.windll.user32.GetMonitorInfoW', side_effect=fill_mon_info), \
+         patch('ctypes.windll.user32.GetWindowRect', side_effect=fill_window_rect):
+        popup._resize_and_position(height)
+
+    return mock_window
+
+
+# ---------------------------------------------------------------------------
+# popup.html / popup.js / locale consistency
+# ---------------------------------------------------------------------------
+
+_POPUP_DIR = Path(__file__).parent.parent / 'auto_scheduler_for_claude' / 'popup'
+
+
+class TestPopupAssets(unittest.TestCase):
+    """Cross-checks between popup.js, popup.html, and the translation set.
+
+    These catch the failure mode a unit test cannot: JavaScript that reaches
+    for an element or a string that does not exist fails silently in the
+    WebView2 host, leaving a blank section rather than an error.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.js = (_POPUP_DIR / 'popup.js').read_text(encoding='utf-8')
+        cls.html = (_POPUP_DIR / 'popup.html').read_text(encoding='utf-8')
+
+    def test_every_element_the_script_looks_up_exists_in_the_markup(self):
+        wanted = set(re.findall(r"getElementById\('([^']+)'\)", self.js))
+        present = set(re.findall(r'id="([^"]+)"', self.html))
+        self.assertEqual(wanted - present, set())
+
+    def test_every_cached_element_the_script_reads_is_also_assigned(self):
+        """An `els` entry that is read but never filled in throws on first use."""
+        read = set(re.findall(r'\bels\.([A-Za-z]+)', self.js))
+        assigned = set(re.findall(r'\bels\.([A-Za-z]+) =', self.js))
+        assigned |= set(re.findall(r'^\s{8}([A-Za-z]+): document\.getElementById', self.js, re.MULTILINE))
+        self.assertEqual(read - assigned, set())
+
+    def _keys_used_by_the_script(self) -> set[str]:
+        """Keys the page reads, by attribute and by the chip loops' lookup tables."""
+        attribute_access = set(re.findall(r'translations\.([a-z_]+)', self.js))
+        quoted = set(re.findall(r"'([a-z_]+)'", self.js)) & set(_POPUP_TEXT_KEYS)
+        return attribute_access | quoted
+
+    def test_every_translation_the_script_uses_is_sent_to_it(self):
+        sent = set(_POPUP_TEXT_KEYS) | {'title'}
+        self.assertEqual(self._keys_used_by_the_script() - sent, set())
+
+    def test_every_translation_sent_to_the_script_is_used_by_it(self):
+        """A key the page never reads is dead weight in all 13 locale files."""
+        self.assertEqual(set(_POPUP_TEXT_KEYS) - self._keys_used_by_the_script(), set())
+
+    def test_every_translation_key_exists_in_english(self):
+        for key in _POPUP_TEXT_KEYS:
+            self.assertIn(key, T, f'{key} is missing from the locale files')
+
+    def test_no_hardcoded_colours_in_the_stylesheet(self):
+        """The popup is themed from settings; a literal colour cannot follow it.
+
+        The one exception is the time marker's drop shadow, which is a tint
+        under the marker rather than a colour of its own and has no token.
+        """
+        css = (_POPUP_DIR / 'popup.css').read_text(encoding='utf-8')
+        self.assertEqual(re.findall(r'#[0-9a-fA-F]{3,8}\b', css), [])
+        self.assertEqual(re.findall(r'rgba?\([^)]*\)', css), ['rgba(0, 0, 0, 0.3)'])
+
+    def test_header_control_icons_have_explicit_size(self):
+        """SVGs inside the header buttons collapsed to 0x0 in WebView2 when only
+        sized by CSS nesting.  They must carry HTML width/height and a direct
+        CSS rule so the expand / pin icons are always visible.
+        """
+        css = (_POPUP_DIR / 'popup.css').read_text(encoding='utf-8')
+        for button_id in ('expandBtn', 'pinBtn'):
+            with self.subTest(button=button_id):
+                match = re.search(rf'<button[^>]*\bid="{button_id}"[^>]*>(.*?)</button>', self.html, re.DOTALL)
+                self.assertTrue(match, f'{button_id} missing from HTML')
+                svg = match.group(1)
+                self.assertIn('width="16"', svg)
+                self.assertIn('height="16"', svg)
+                self.assertIn('viewBox="0 0 16 16"', svg)
+        # The stylesheet must also size the icons, independent of nesting depth.
+        self.assertRegex(css, r'&\s+svg\s*\{[^}]*width:\s*16px;[^}]*height:\s*16px;[^}]*\}')
 
 
 if __name__ == '__main__':

@@ -48,14 +48,13 @@ header {
 
         &:hover { color: var(--fg-heading); }
 
-        &#pinBtn {
-            & svg {
-                width: 16px;
-                height: 16px;
-            }
-
-            &.pinned { color: var(--fg-heading); }
+        & svg {
+            width: 16px;
+            height: 16px;
+            flex-shrink: 0;
         }
+
+        &#pinBtn.pinned { color: var(--fg-heading); }
     }
 
     /* When pinned, the header acts as the drag handle. */
@@ -102,12 +101,23 @@ h2 {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
+    gap: 12px;
 
-    & > span {
+    /* Scoped to the one span that is actually a link: the other heading rows
+       carry plain captions (the queue summary, a log file name). */
+    & > #changelogLink {
         font-size: 12px;
         color: var(--fg-link);
         text-decoration: underline;
         cursor: pointer;
+    }
+
+    & > span {
+        font-size: 12px;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 }
 
@@ -206,3 +216,329 @@ footer {
 
     &.error > #statusText { color: var(--bar-fg-warn); }
 }
+
+/* ---------------------------------------------------------------------------
+   Expanded view: task queue, task detail, task editor.
+
+   Every colour below resolves to one of the theme tokens fed from settings.py
+   - the popup has no palette of its own.
+   --------------------------------------------------------------------------- */
+
+body.expanded { padding: 12px 20px 20px; }
+
+/* The expanded width exists for the queue table and the quota line.  Label /
+   value pairs and form fields would just spread across it, so they keep a
+   readable measure. */
+body.expanded dl > div { max-width: 460px; }
+body.expanded #formSection { max-width: 720px; }
+
+.muted { color: var(--fg-dim); }
+.small { font-size: 11px; }
+.mono { font-family: ui-monospace, Consolas, monospace; }
+.spacer { flex: 1; }
+
+button {
+    font-family: inherit;
+    font-size: 12px;
+    color: var(--fg);
+    background: none;
+    border: 1px solid var(--bar-bg);
+    border-radius: 3px;
+    padding: 5px 12px;
+    cursor: pointer;
+
+    &:hover:not(:disabled) { color: var(--fg-heading); border-color: var(--fg-dim); }
+    &:disabled { color: var(--fg-dim); cursor: default; opacity: 0.6; }
+
+    &.primary { color: var(--fg-heading); border-color: var(--bar-fg); }
+    &.primary:hover:not(:disabled) { background: var(--bar-fg); }
+    &.danger { color: var(--bar-fg-warn); border-color: var(--bar-fg-warn); }
+    &.link { border: none; padding: 0; color: var(--fg-link); text-decoration: underline; }
+}
+
+input, textarea {
+    font-family: inherit;
+    font-size: 12px;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--bar-bg);
+    border-radius: 3px;
+    padding: 6px 8px;
+    width: 100%;
+    user-select: text;
+    -webkit-user-select: text;
+
+    &:focus { outline: none; border-color: var(--bar-fg); }
+}
+
+textarea { resize: vertical; line-height: 1.4; }
+
+.notice {
+    display: none;
+    font-size: 11px;
+    line-height: 1.45;
+    border: 1px solid var(--bar-bg);
+    border-radius: 3px;
+    padding: 8px 10px;
+    color: var(--fg-dim);
+
+    &.visible { display: block; }
+    &.warn { color: var(--bar-fg-warn); border-color: var(--bar-fg-warn); }
+    &.error { color: var(--bar-fg-warn); border-color: var(--bar-fg-warn); }
+}
+
+.chips {
+    display: flex;
+    border: 1px solid var(--bar-bg);
+    border-radius: 3px;
+    overflow: hidden;
+
+    & > button {
+        border: none;
+        border-radius: 0;
+        padding: 4px 10px;
+        font-size: 11px;
+        color: var(--fg-dim);
+
+        &.active { color: var(--fg-heading); background: var(--bar-bg); }
+    }
+}
+
+/* Headline bar for the quota the queue is gated on. */
+
+#gateSection { gap: 4px; }
+
+.gate-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+
+    & > #gatePct {
+        font-size: 26px;
+        font-weight: 700;
+        color: var(--fg-heading);
+    }
+
+    & > #gateCaption { font-size: 12px; color: var(--fg-dim); }
+}
+
+.gate-bar { height: 12px; margin-top: 4px; }
+
+.gate-markers {
+    position: relative;
+    height: 30px;
+    font-size: 10px;
+}
+
+.gate-marker {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    white-space: nowrap;
+    color: var(--fg-dim);
+
+    & > .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--fg-dim);
+    }
+
+    &.met { color: var(--fg); }
+    &.met > .dot { background: var(--bar-fg); }
+    /* Alternate rows so neighbouring thresholds do not overprint. */
+    &.stagger { top: 14px; }
+}
+
+.gate-scale {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--fg-dim);
+}
+
+/* Task queue table. */
+
+.queue-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+.table {
+    border: 1px solid var(--bar-bg);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.table-head, .table-row {
+    display: grid;
+    grid-template-columns: 110px minmax(0, 1fr) 90px 90px 110px minmax(120px, 1fr);
+    gap: 10px;
+    align-items: center;
+    padding: 8px 10px;
+}
+
+.table-head {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    background: var(--bar-bg);
+}
+
+.table-row {
+    border-top: 1px solid var(--bar-bg);
+    font-size: 12px;
+    cursor: pointer;
+
+    &:first-child { border-top: none; }
+    &:hover { background: var(--bar-bg); }
+
+    & .task-name {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+
+        & > span:first-child { color: var(--fg-heading); }
+    }
+
+    & .ellipsis {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+}
+
+.pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.st-running { color: var(--bar-fg); }
+.st-pending { color: var(--fg); }
+.st-waiting { color: var(--fg-dim); }
+.st-done { color: var(--fg); }
+.st-interrupted { color: var(--fg-dim); }
+.st-failed { color: var(--bar-fg-warn); }
+
+/* Task detail. */
+
+.detail-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.detail-title {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    min-width: 0;
+
+    & > #detailName { font-size: 14px; font-weight: 700; color: var(--fg-heading); }
+    & > #detailPath { font-size: 11px; }
+    & > #detailBack { margin-bottom: 4px; }
+}
+
+.detail-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+
+    & > div {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+
+        & > dt { font-size: 10px; color: var(--fg-dim); text-transform: uppercase; }
+        & > dd { margin: 0; font-size: 12px; }
+    }
+}
+
+.log {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--bar-bg);
+    border-radius: 3px;
+    padding: 8px 10px;
+    max-height: 260px;
+    min-height: 90px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    user-select: text;
+    -webkit-user-select: text;
+}
+
+.actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+/* Task editor. */
+
+.form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+
+    & > span { font-size: 11px; color: var(--fg-dim); }
+    &.narrow { max-width: 220px; }
+    &.hidden { display: none; }
+}
+
+.field-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+
+    & > span { font-size: 11px; color: var(--fg-dim); }
+}
+
+.with-button {
+    display: flex;
+    gap: 6px;
+
+    & > input { min-width: 0; }
+    & > button { flex-shrink: 0; }
+}
+
+.range-ends {
+    display: flex;
+    justify-content: space-between;
+}
+
+input[type="range"] {
+    padding: 0;
+    border: none;
+    accent-color: var(--bar-fg);
+    background: none;
+}
+
+#thresholdValue { font-size: 13px; color: var(--fg-heading); }

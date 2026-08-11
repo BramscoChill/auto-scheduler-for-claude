@@ -8,7 +8,8 @@
 <header>
     <span id="title"></span>
     <div class="window-controls">
-        <button type="button" id="pinBtn" aria-pressed="false"><svg viewBox="0 0 16 16"><path fill="currentColor" d="M5 2h6v2l-1 1v3l3 3v1H9v3H7v-3H3v-1l3-3V5L5 4z"/></svg></button>
+        <button type="button" id="expandBtn" aria-pressed="false"><svg viewBox="0 0 16 16" width="16" height="16"><path fill="currentColor" d="M2 2h5v2H4v3H2zm12 0v5h-2V4H9V2zM2 9h2v3h3v2H2zm12 0v5H9v-2h3V9z"/></svg></button>
+        <button type="button" id="pinBtn" aria-pressed="false"><svg viewBox="0 0 16 16" width="16" height="16"><path fill="currentColor" d="M5 2h6v2l-1 1v3l3 3v1H9v3H7v-3H3v-1l3-3V5L5 4z"/></svg></button>
         <button type="button" id="closeBtn" aria-label="Close">&times;</button>
     </div>
 </header>
@@ -27,6 +28,18 @@
     </dl>
 </section>
 
+<section id="gateSection">
+    <div class="gate-head">
+        <span id="gatePct"></span>
+        <span id="gateCaption"></span>
+    </div>
+    <div class="bar-container gate-bar" id="gateBarContainer">
+        <div class="bar-fill" id="gateFill"></div>
+    </div>
+    <div class="gate-markers" id="gateMarkers"></div>
+    <div class="gate-scale"><span>0%</span><span>50%</span><span>100%</span></div>
+</section>
+
 <section id="usageSection">
     <h2 id="headingUsage"></h2>
     <div id="usageBars"></div>
@@ -40,6 +53,92 @@
     </div>
     <div class="bar-container" id="extraBarContainer">
         <div class="bar-fill" id="extraFill"></div>
+    </div>
+</section>
+
+<section id="queueSection">
+    <div class="heading-row">
+        <h2 id="headingQueue"></h2>
+        <span id="queueSummary" class="muted"></span>
+    </div>
+    <div id="queueNotice" class="notice"></div>
+    <div class="queue-controls">
+        <div class="chips" id="queueFilters"></div>
+        <button type="button" id="newTaskBtn" class="primary"></button>
+    </div>
+    <div id="queueEmpty" class="muted"></div>
+    <div class="table" id="queueTable">
+        <div class="table-head" id="queueTableHead"></div>
+        <div id="queueRows"></div>
+    </div>
+</section>
+
+<section id="detailSection">
+    <div class="detail-head">
+        <div class="detail-title">
+            <button type="button" id="detailBack" class="link"></button>
+            <span id="detailName"></span>
+            <span id="detailPath" class="mono muted"></span>
+        </div>
+        <span id="detailStatus" class="pill"></span>
+    </div>
+    <dl class="detail-stats" id="detailStats"></dl>
+    <div class="heading-row">
+        <h2 id="headingDetailLog"></h2>
+        <span id="detailLogName" class="mono muted"></span>
+    </div>
+    <pre id="detailLog" class="log"></pre>
+    <div class="actions">
+        <button type="button" id="detailOpenLog"></button>
+        <button type="button" id="detailStop" class="danger"></button>
+    </div>
+</section>
+
+<section id="formSection">
+    <div class="heading-row">
+        <h2 id="headingForm"></h2>
+    </div>
+    <div id="formErrors" class="notice error"></div>
+    <div class="form-grid">
+        <label class="field"><span id="labelTaskId"></span><input type="text" id="fieldId" class="mono" spellcheck="false"></label>
+        <label class="field"><span id="labelTaskDescription"></span><input type="text" id="fieldDescription"></label>
+    </div>
+    <div class="field">
+        <div class="field-head">
+            <span id="labelTaskPrompt"></span>
+            <div class="chips" id="promptModes"></div>
+        </div>
+        <textarea id="fieldPrompt" rows="4" spellcheck="false"></textarea>
+        <div class="with-button">
+            <input type="text" id="fieldPromptFile" class="mono" spellcheck="false">
+            <button type="button" id="browsePromptFile"></button>
+        </div>
+        <span id="promptCaveat" class="muted small"></span>
+    </div>
+    <div class="field">
+        <span id="labelTaskCwd"></span>
+        <div class="with-button">
+            <input type="text" id="fieldCwd" class="mono" spellcheck="false">
+            <button type="button" id="browseCwd"></button>
+        </div>
+    </div>
+    <div class="field">
+        <div class="field-head">
+            <span id="labelTaskThreshold"></span>
+            <span id="thresholdValue"></span>
+        </div>
+        <input type="range" id="fieldThreshold" min="0" max="100" step="1">
+        <div class="range-ends"><span id="thresholdLow" class="muted small"></span><span id="thresholdHigh" class="muted small"></span></div>
+        <span id="thresholdHint" class="muted small"></span>
+    </div>
+    <label class="field narrow"><span id="labelTaskTimeout"></span><input type="number" id="fieldTimeout" class="mono" min="0" step="1"></label>
+    <div id="idWarning" class="notice warn"></div>
+    <div id="permissionWarning" class="notice warn"></div>
+    <div class="actions">
+        <button type="button" id="formDelete" class="danger"></button>
+        <span class="spacer"></span>
+        <button type="button" id="formCancel"></button>
+        <button type="button" id="formSave" class="primary"></button>
     </div>
 </section>
 

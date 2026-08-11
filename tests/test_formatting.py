@@ -15,9 +15,10 @@ from unittest.mock import MagicMock, patch
 from auto_scheduler_for_claude.formatting import (
     PERIOD_5H, PERIOD_7D,
     divider_positions, elapsed_pct, expand_popup_fields, field_period, format_credits,
-    format_tooltip, parse_field_name, popup_label, quota_snapshot_env, time_until, tooltip_label,
+    format_duration, format_timestamp, format_tooltip, parse_field_name, popup_label,
+    quota_snapshot_env, time_until, tooltip_label,
 )
-from auto_scheduler_for_claude.i18n import LOCALE_DIR
+from auto_scheduler_for_claude.i18n import LOCALE_DIR, T
 
 EN = json.loads((LOCALE_DIR / 'en.json').read_text(encoding='utf-8'))
 
@@ -1068,6 +1069,88 @@ class TestQuotaSnapshotEnv(unittest.TestCase):
     def test_disabled_extra_usage_omitted(self):
         env = quota_snapshot_env({'extra_usage': {'is_enabled': False, 'used_credits': 500}})
         self.assertEqual(env, {})
+
+
+# ---------------------------------------------------------------------------
+# format_duration
+# ---------------------------------------------------------------------------
+
+class TestFormatDuration(unittest.TestCase):
+    """Tests for format_duration - a run's elapsed or total time."""
+
+    def test_seconds_below_a_minute(self):
+        self.assertEqual(format_duration(42), '42s')
+
+    def test_minutes_below_an_hour(self):
+        self.assertEqual(format_duration(6 * 60 + 30), '6m')
+
+    def test_hours_and_minutes(self):
+        self.assertEqual(format_duration(3600 + 12 * 60), '1h 12m')
+
+    def test_exactly_one_minute(self):
+        self.assertEqual(format_duration(60), '1m')
+
+    def test_exactly_one_hour(self):
+        self.assertEqual(format_duration(3600), '1h 0m')
+
+    def test_zero(self):
+        self.assertEqual(format_duration(0), '0s')
+
+    def test_negative_reads_as_zero(self):
+        """A clock adjustment must not print a negative elapsed time."""
+        self.assertEqual(format_duration(-5), '0s')
+
+    def test_minutes_are_truncated_not_rounded(self):
+        """A displayed duration must never run ahead of the real one."""
+        self.assertEqual(format_duration(119), '1m')
+
+
+# ---------------------------------------------------------------------------
+# format_timestamp
+# ---------------------------------------------------------------------------
+
+class TestFormatTimestamp(unittest.TestCase):
+    """Tests for format_timestamp - when a past run happened."""
+
+    @staticmethod
+    def _ago(**kwargs) -> str:
+        return (datetime.now().astimezone() - timedelta(**kwargs)).isoformat()
+
+    def test_today_is_just_a_clock_time(self):
+        when = datetime.now().astimezone().replace(hour=14, minute=30, second=0, microsecond=0)
+        self.assertEqual(format_timestamp(when.isoformat(), clock_24h=True), '14:30')
+
+    def test_yesterday_is_labelled(self):
+        self.assertTrue(format_timestamp(self._ago(days=1), clock_24h=True).startswith('Yesterday'))
+
+    def test_within_a_week_uses_the_weekday(self):
+        result = format_timestamp(self._ago(days=3), clock_24h=True)
+        weekday = T['weekdays'][(datetime.now() - timedelta(days=3)).weekday()]
+        self.assertTrue(result.startswith(weekday))
+
+    def test_older_than_a_week_uses_the_date(self):
+        older = datetime.now().astimezone() - timedelta(days=30)
+        self.assertTrue(format_timestamp(older.isoformat(), clock_24h=True).startswith(older.strftime('%Y-%m-%d')))
+
+    def test_twelve_hour_clock(self):
+        when = datetime.now().astimezone().replace(hour=14, minute=30, second=0, microsecond=0)
+        self.assertEqual(format_timestamp(when.isoformat(), clock_24h=False), '2:30 PM')
+
+    def test_empty_string(self):
+        self.assertEqual(format_timestamp(''), '')
+
+    def test_unparseable_timestamp(self):
+        """An older or hand-edited state record must not crash the popup."""
+        self.assertEqual(format_timestamp('not-a-timestamp'), '')
+
+    def test_none(self):
+        self.assertEqual(format_timestamp(None), '')
+
+    def test_utc_input_is_shown_in_local_time(self):
+        """State records are written in UTC but read by a human in their zone."""
+        when = datetime.now(timezone.utc).replace(microsecond=0)
+        expected = when.astimezone().strftime('%H:%M')
+        self.assertEqual(format_timestamp(when.isoformat(), clock_24h=True), expected)
 
 
 if __name__ == '__main__':

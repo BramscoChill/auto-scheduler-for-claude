@@ -31,9 +31,13 @@ from .settings import (
     ON_DOUBLE_CLICK_COMMAND, ON_RESET_COMMAND, ON_STARTUP_COMMAND, ON_THRESHOLD_COMMAND,
     POLL_ERROR, POLL_FAST, POLL_FAST_EXTRA, POLL_INTERVAL, get_alert_thresholds,
 )
-from .formatting import elapsed_pct, field_period, format_credits, format_tooltip, parse_field_name, popup_label, quota_snapshot_env
+from .formatting import (
+    divider_positions, elapsed_pct, field_period, format_credits, format_duration, format_timestamp,
+    format_tooltip, parse_field_name, popup_label, quota_snapshot_env, time_until,
+)
 from .i18n import T
 from .popup import UsagePopup
+from .task_registry import ERROR_STALE, read_registry, write_registry
 from .task_runner import STATUS_DONE, STATUS_INTERRUPTED, STATUS_PENDING, STATUS_RUNNING, STATUS_WAITING, TaskRunner
 from .tasks import Task
 from .tray_icon import create_icon_image, create_status_image, taskbar_uses_light_theme, watch_theme_change
@@ -69,10 +73,88 @@ TASK_STATUS_GLYPHS = {
 }
 TASK_FAILED_GLYPH = '✖'         # cross - finished with a non-zero exit code
 
+# Statuses that can still turn into a run.  Drives the popup's Active/Done
+# filter and which thresholds get a marker on the headline quota bar.
+TASK_ACTIVE_STATUSES = frozenset({STATUS_WAITING, STATUS_PENDING, STATUS_RUNNING})
+
+# The quota field the task queue is gated on.  This is queue logic, not display
+# logic: tasks start on this field alone (``TaskRunner.evaluate``,
+# docs/task-queue.md), so the popup's headline bar names the same field instead
+# of auto-detecting one.  The auto-detected bars are unaffected.
+QUEUE_GATE_FIELD = 'five_hour'
+
 
 def _future_iso(**kwargs: float) -> str:
     """Return an ISO 8601 timestamp offset from now by the given timedelta kwargs."""
     return (datetime.now(timezone.utc) + timedelta(**kwargs)).isoformat()
+
+
+def _iso_to_epoch(iso_str: str | None) -> float | None:
+    """Return a Unix timestamp for an ISO 8601 string, or None if unparseable."""
+    if not iso_str:
+        return None
+
+    try:
+        return datetime.fromisoformat(iso_str).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def _run_duration(row: dict[str, Any]) -> float | None:
+    """Return a finished run's wall-clock duration in seconds, or None."""
+    started = _iso_to_epoch(row.get('started_at'))
+    finished = _iso_to_epoch(row.get('finished_at'))
+    if started is None or finished is None:
+        return None
+
+    return max(0.0, finished - started)
+
+
+def _task_result_text(row: dict[str, Any], gate_pct: float | None) -> str:
+    """Return the "what happened / what is it waiting for" cell for one task.
+
+    A running task returns an empty string: its elapsed time ticks in the
+    popup, which would otherwise only advance when something else changes.
+    """
+    status = row['status']
+    if status == STATUS_RUNNING:
+        return ''
+
+    if status == STATUS_DONE:
+        duration = _run_duration(row)
+        if duration is None:
+            return T['task_state_done'].format(code=row['exit_code'])
+        return T['queue_result_duration'].format(code=row['exit_code'], duration=format_duration(duration))
+
+    if status == STATUS_WAITING and gate_pct is not None:
+        headroom = gate_pct - row['max_usage_percent']
+        return T['queue_needs_headroom'].format(pct=f'{headroom:.0f}')
+
+    return T[f'task_state_{status}']
+
+
+def _threshold_markers(rows: list[dict[str, Any]], gate_pct: float | None) -> list[dict[str, Any]]:
+    """Place one marker per still-runnable task on the headline quota bar.
+
+    Completed and interrupted tasks are left off: one-shot means they will
+    never run again, so their threshold says nothing about what happens next.
+    A marker is *met* under the same ``<=`` comparison ``select_runnable``
+    uses, so the bar and the queue can never disagree about what would start.
+    """
+    markers = []
+    for row in rows:
+        if not row['active']:
+            continue
+        threshold = row['threshold_pct']
+        markers.append({
+            'rel': max(0.0, min(1.0, threshold / 100)),
+            'label': row['id'],
+            'pct_text': f'{threshold:g}%',
+            'met': gate_pct is not None and gate_pct <= threshold,
+        })
+
+    markers.sort(key=lambda marker: marker['rel'])
+    return markers
 
 
 def _align_to_reset(interval: int, next_reset: float | None) -> tuple[int, bool]:
@@ -156,6 +238,9 @@ class AutoSchedulerForClaude:
         self._popup_open = False
         self._popup_closed_at = 0.0
         self._next_poll_time: float | None = None
+        # Compact or task-queue width, remembered across popup opens.  Kept in
+        # memory rather than in the settings file, which the app never writes.
+        self._popup_expanded = False
 
         # Theme state
         self._light_taskbar = taskbar_uses_light_theme()
@@ -170,29 +255,7 @@ class AutoSchedulerForClaude:
             'auto_scheduler',
             icon=create_icon_image(0, 0, self._light_taskbar),
             title=self._tooltip_prefix + T['loading'],
-            menu=pystray.Menu(
-                pystray.MenuItem(T['menu_show'], self.on_show_popup, default=True),
-                pystray.Menu.SEPARATOR,
-                pystray.MenuItem(
-                    T['autostart'], self.on_toggle_autostart,
-                    checked=lambda item: is_autostart_enabled(),
-                    visible=getattr(sys, 'frozen', False),
-                ),
-                pystray.MenuItem(T['task_queue'], self._build_task_menu(), visible=self.task_runner.has_tasks()),
-                pystray.MenuItem(T['test_commands'], pystray.Menu(
-                    pystray.MenuItem(T['test_reset_5h'], self.on_test_reset_5h, enabled=bool(ON_RESET_COMMAND)),
-                    pystray.MenuItem(T['test_reset_7d'], self.on_test_reset_7d, enabled=bool(ON_RESET_COMMAND)),
-                    pystray.MenuItem(T['test_threshold_5h'], self.on_test_threshold_5h, enabled=bool(ON_THRESHOLD_COMMAND)),
-                    pystray.MenuItem(T['test_threshold_7d'], self.on_test_threshold_7d, enabled=bool(ON_THRESHOLD_COMMAND)),
-                    pystray.MenuItem(T['test_startup'], self.on_test_startup, enabled=bool(ON_STARTUP_COMMAND)),
-                    pystray.MenuItem(T['test_double_click'], self.on_test_double_click, enabled=bool(ON_DOUBLE_CLICK_COMMAND)),
-                ), enabled=bool(ON_RESET_COMMAND or ON_STARTUP_COMMAND or ON_THRESHOLD_COMMAND or ON_DOUBLE_CLICK_COMMAND)),
-                pystray.MenuItem(T['restart'], self.on_restart),
-                pystray.Menu.SEPARATOR,
-                pystray.MenuItem(T['menu_project'], self.on_open_project),
-                pystray.Menu.SEPARATOR,
-                pystray.MenuItem(T['quit'], self.on_quit),
-            ),
+            menu=self._build_menu(),
         )
 
         # Double-click support.  pystray fires the default action (the popup) on
@@ -326,6 +389,52 @@ class AutoSchedulerForClaude:
         self.running = False
         self.icon.stop()
 
+    # Tray menu
+
+    def _build_menu(self) -> Any:
+        """Build the whole tray menu.
+
+        Rebuilt rather than mutated after a registry edit: the task submenu's
+        entries and its visibility are both fixed at construction time, so a
+        newly added task only appears once the menu is built again.
+        """
+        return pystray.Menu(
+            pystray.MenuItem(T['menu_show'], self.on_show_popup, default=True),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem(
+                T['autostart'], self.on_toggle_autostart,
+                checked=lambda item: is_autostart_enabled(),
+                visible=getattr(sys, 'frozen', False),
+            ),
+            pystray.MenuItem(T['task_queue'], self._build_task_menu(), visible=self.task_runner.has_tasks()),
+            pystray.MenuItem(T['test_commands'], pystray.Menu(
+                pystray.MenuItem(T['test_reset_5h'], self.on_test_reset_5h, enabled=bool(ON_RESET_COMMAND)),
+                pystray.MenuItem(T['test_reset_7d'], self.on_test_reset_7d, enabled=bool(ON_RESET_COMMAND)),
+                pystray.MenuItem(T['test_threshold_5h'], self.on_test_threshold_5h, enabled=bool(ON_THRESHOLD_COMMAND)),
+                pystray.MenuItem(T['test_threshold_7d'], self.on_test_threshold_7d, enabled=bool(ON_THRESHOLD_COMMAND)),
+                pystray.MenuItem(T['test_startup'], self.on_test_startup, enabled=bool(ON_STARTUP_COMMAND)),
+                pystray.MenuItem(T['test_double_click'], self.on_test_double_click, enabled=bool(ON_DOUBLE_CLICK_COMMAND)),
+            ), enabled=bool(ON_RESET_COMMAND or ON_STARTUP_COMMAND or ON_THRESHOLD_COMMAND or ON_DOUBLE_CLICK_COMMAND)),
+            pystray.MenuItem(T['restart'], self.on_restart),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem(T['menu_project'], self.on_open_project),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem(T['quit'], self.on_quit),
+        )
+
+    def _rebuild_menu(self) -> None:
+        """Re-create the tray menu after the task registry changed.
+
+        Best-effort: the popup edit has already succeeded by the time this
+        runs, so a tray that refuses to update must not surface as a failed
+        save.  It corrects itself on the next restart.
+        """
+        try:
+            self.icon.menu = self._build_menu()
+            self.icon.update_menu()
+        except Exception:
+            traceback.print_exc()
+
     # Task queue menu
 
     def _build_task_menu(self) -> Any:
@@ -376,6 +485,194 @@ class AutoSchedulerForClaude:
                 traceback.print_exc()
 
         return open_log
+
+    # Task queue payload for the popup
+
+    def queue_payload(self) -> dict[str, Any]:
+        """Build the popup's task-queue block from the runner's snapshot.
+
+        Lives here rather than in ``popup`` because this is where ``STATUS_*``
+        keys become locale strings - ``task_runner`` must stay free of UI text,
+        and ``popup`` receives text it only has to place.
+        """
+        queue = self.task_runner.snapshot()
+        gate_pct = queue['five_hour_pct']
+        rows = [self._task_row(row, gate_pct) for row in queue['tasks']]
+
+        running = queue['running_count']
+        active = sum(1 for row in rows if row['active'])
+        free_slots = max(0, queue['max_concurrent'] - running)
+
+        return {
+            'disabled': queue['disabled'],
+            'draining': queue['draining'],
+            'summary_text': T['queue_summary'].format(running=running, waiting=active - running, free=free_slots),
+            'counts': {'all': len(rows), 'active': active, 'done': len(rows) - active},
+            'gate': self._queue_gate_bar(),
+            'markers': _threshold_markers(rows, gate_pct),
+            'tasks': rows,
+        }
+
+    def _task_row(self, row: dict[str, Any], gate_pct: float | None) -> dict[str, Any]:
+        """Turn one raw runner row into the pre-formatted row the popup renders."""
+        status = row['status']
+        exit_code = row['exit_code']
+        failed = status == STATUS_DONE and bool(exit_code)
+        threshold = row['max_usage_percent']
+        timeout = row['timeout_minutes']
+        started_at = row['started_at']
+        utilization = row['started_at_utilization']
+
+        return {
+            'id': row['id'],
+            'name': row['description'] or row['id'],
+            'cwd': row['cwd'] or '',
+            'status': status,
+            'status_text': self._task_status_label(row['id'], status),
+            'glyph': TASK_FAILED_GLYPH if failed else TASK_STATUS_GLYPHS.get(status, ''),
+            'failed': failed,
+            'active': status in TASK_ACTIVE_STATUSES,
+            'threshold_pct': threshold,
+            'threshold_text': T['queue_threshold'].format(pct=f'{threshold:g}'),
+            'timeout_text': T['queue_no_timeout'] if timeout == 0 else T['queue_timeout'].format(min=f'{timeout:g}'),
+            'last_run_text': format_timestamp(started_at) if started_at else '',
+            'result_text': _task_result_text(row, gate_pct),
+            'started_text': format_timestamp(started_at) if started_at else '',
+            'started_epoch': _iso_to_epoch(started_at) if status == STATUS_RUNNING else None,
+            'elapsed_text': format_duration(row['elapsed_seconds']) if row['elapsed_seconds'] is not None else '',
+            'started_usage_text': f'{utilization:.0f}%' if utilization is not None else '',
+            'log_name': row['log'] or '',
+            'has_log': row['has_log'],
+            'can_stop': status == STATUS_RUNNING,
+            'can_delete': status != STATUS_RUNNING,
+        }
+
+    def _queue_gate_bar(self) -> dict[str, Any] | None:
+        """Build the headline bar for the quota the queue is gated on.
+
+        Returns None when the account reports no such quota - the same
+        condition under which ``TaskRunner.evaluate`` starts nothing, so the
+        popup says so instead of showing a bar for a different field.
+        """
+        usage = self.cache.snapshot.usage or {}
+        entry = usage.get(QUEUE_GATE_FIELD) or {}
+        pct = entry.get('utilization')
+        if pct is None:
+            return None
+
+        resets_at = entry.get('resets_at', '')
+        period = field_period(QUEUE_GATE_FIELD)
+        time_pct = elapsed_pct(resets_at, period) if period else None
+
+        return {
+            'key': QUEUE_GATE_FIELD,
+            'pct': pct,
+            'pct_text': f'{pct:.0f}%',
+            'fill_pct': max(0.0, min(1.0, pct / 100)),
+            'warn': pct >= 100 or (time_pct is not None and pct > time_pct),
+            'caption': T['queue_gate_caption'].format(label=popup_label(QUEUE_GATE_FIELD)),
+            'reset_text': time_until(resets_at) if resets_at else '',
+            'dividers': divider_positions(resets_at, period) if period else [],
+            'marker_rel': max(0.0, min(1.0, time_pct / 100)) if time_pct is not None else None,
+        }
+
+    # Task queue editing
+
+    # Every method below runs only from an explicit user action in the popup's
+    # task editor.  Nothing here is reachable from the poll loop, a timer, or
+    # any other background thread - the registry is never written on its own.
+
+    def registry_read(self) -> dict[str, Any]:
+        """Return the raw registry entries, a change stamp, and the used ids."""
+        entries, stamp, error = read_registry()
+        return {
+            'entries': entries,
+            'stamp': list(stamp),
+            'completed_ids': self.task_runner.completed_ids(),
+            'error': T[error] if error else None,
+        }
+
+    def registry_save(self, entry: dict[str, Any], index: int, stamp: list[float]) -> dict[str, Any]:
+        """Add or replace one registry entry.
+
+        *index* below zero (or past the end) appends.  Replacing keeps the
+        entry's position, because file order is queue priority.
+        """
+        entries, current_stamp, error = read_registry()
+        if error:
+            return self._registry_failure(error)
+        if list(current_stamp) != list(stamp):
+            return self._registry_failure(ERROR_STALE)
+
+        prospective = list(entries)
+        if 0 <= index < len(prospective):
+            prospective[index] = entry
+        else:
+            prospective.append(entry)
+
+        return self._apply_registry(prospective, current_stamp)
+
+    def registry_delete(self, index: int, stamp: list[float]) -> dict[str, Any]:
+        """Remove one registry entry, refusing while its task is running.
+
+        Deleting the entry of a live process would leave the tray menu, the
+        popup, and the running child disagreeing about what exists.  The state
+        record and the log file of a finished task are deliberately left
+        alone: the record is what enforces one-shot.
+        """
+        entries, current_stamp, error = read_registry()
+        if error:
+            return self._registry_failure(error)
+        if list(current_stamp) != list(stamp):
+            return self._registry_failure(ERROR_STALE)
+        if not 0 <= index < len(entries):
+            return self._registry_failure(ERROR_STALE)
+
+        task_id = entries[index].get('id')
+        if isinstance(task_id, str) and self.task_runner.status(task_id) == STATUS_RUNNING:
+            return {'ok': False, 'error': T['queue_error_delete_running'], 'errors': []}
+
+        return self._apply_registry([e for i, e in enumerate(entries) if i != index], current_stamp)
+
+    def stop_task(self, task_id: str) -> bool:
+        """Terminate one running task from the popup."""
+        return self.task_runner.stop(task_id)
+
+    def task_log(self, task_id: str, offset: int) -> dict[str, Any] | None:
+        """Return the next chunk of one run's log for the popup's log view."""
+        return self.task_runner.log_tail(task_id, offset)
+
+    def open_task_log(self, task_id: str) -> bool:
+        """Open one run's log in the system's default handler."""
+        log_path = self.task_runner.log_path(task_id)
+        if log_path is None:
+            return False
+
+        try:
+            os.startfile(log_path)
+        except OSError:
+            traceback.print_exc()
+            return False
+
+        return True
+
+    def _apply_registry(self, entries: list[dict[str, Any]], stamp: tuple[float, int]) -> dict[str, Any]:
+        """Write a validated registry, then swap it in and refresh the tray."""
+        tasks, validation_errors, error = write_registry(entries, stamp)
+        if error is not None:
+            return {
+                'ok': False,
+                'error': T[error],
+                'errors': [{'field': e.field, 'message': e.message.strip()} for e in validation_errors],
+            }
+
+        self.task_runner.reload(tasks or [])
+        self._rebuild_menu()
+
+        return {'ok': True, 'error': None, 'errors': [], **self.registry_read()}
+
+    def _registry_failure(self, error: str) -> dict[str, Any]:
+        return {'ok': False, 'error': T[error], 'errors': []}
 
     # Popup
 

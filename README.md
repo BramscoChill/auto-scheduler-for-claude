@@ -24,7 +24,7 @@ A native Windows tray app that shows your Claude usage at a glance and runs queu
 - **Detail popup** (left-click) showing account info, dynamically detected usage bars for all active quota types (Session, Weekly, Sonnet, Opus, Fable, Cowork, and any new quotas Anthropic adds) with [configurable field selection](docs/configuration.md#popup-fields), extra usage, reset countdowns, and a stale-data indicator when values may be outdated; pin it open and move it while pinned to keep usage details visible during long sessions, and [configure a compact pinned view](docs/configuration.md#compact-pinned-view) that hides the sections and bars you do not need. Reset times follow your Windows 24-hour or 12-hour clock format automatically
 - **Claude Code versions** - the popup shows which version is installed in each environment (native CLI, VS Code, Cursor, Windsurf), making it easy to spot when your IDE extension is ahead of or behind the CLI. Run Claude Code somewhere the app cannot see it, such as WSL? Add it with the [`cli_command`](docs/configuration.md#claude-cli-command) setting and its version is listed alongside the rest
 - **Smart alerts** - configurable threshold notifications per quota type, with time-aware mode that only alerts when usage outpaces elapsed time. Reset notifications when a nearly exhausted quota refills. Extra usage can also alert on absolute spending amounts (e.g. $50 / $100 / $150 spent), the only alert available when it has no monthly limit
-- **[Task queue](#task-queue)** - queue Claude Code prompts and let them run unattended whenever your five-hour quota drops to the level you set for each one. No wall-clock schedule that burns tokens at a fixed hour or sits idle while quota goes unused: a task starts because there is room for it. Each task runs once, logs everything it printed, and reports its exit code in the tray
+- **[Task queue](#task-queue)** - queue Claude Code prompts and let them run unattended whenever your five-hour quota drops to the level you set for each one. No wall-clock schedule that burns tokens at a fixed hour or sits idle while quota goes unused: a task starts because there is room for it. Each task runs once, logs everything it printed, and reports its exit code. Manage the whole queue from the popup: expand it to see every task against your live quota line - with a marker showing what each one is waiting for - add, edit and delete tasks without hand-editing JSON, watch a running task's log stream in, and stop it if it goes wrong
 - **[Event commands](docs/event-commands.md)** - run a custom shell command when a quota resets, a usage threshold is crossed, the app starts up, or you double-click the tray icon. Send push notifications to your phone, resume an AI agent, start a fresh 5-hour session automatically, play an alert sound, launch a companion tool like [Agent Monitor for Claude](https://github.com/jens-duttke/agent-monitor-for-claude) on double-click, or trigger any custom workflow
 - **Time marker** on each bar showing elapsed time in the current period - in the detail popup and on the tray icon bars - so you can instantly see whether your usage is ahead of or behind the clock; bars that outpace the clock turn red, in the popup and tray alike
 - **Automatic token refresh** - when the OAuth session expires, runs `claude update` in the background to renew the token without user intervention. If a CLI update is installed, shows a notification (which you can turn off via the `notify_claude_update` setting)
@@ -41,7 +41,7 @@ This tool handles your Claude Code OAuth token, so you should be able to verify 
 
 - **Single network destination** - communicates exclusively with `api.anthropic.com`, no other hosts
 - **Credentials stay local** - the OAuth token is used only in HTTP Authorization headers, never logged, stored elsewhere, or transmitted to third parties
-- **Writes almost nothing** - without a task file the app writes no files at all. With one, it writes exactly three paths inside your Claude config directory: `auto-scheduler-state.json`, the `auto-scheduler-logs/` directory, and one log file per run. Nothing else on disk is touched. The only lasting registry changes are two `HKEY_CURRENT_USER` values: the toast notification identity (display name and icon, re-registered on every start) and the autostart entry, written only when you enable autostart. An expired OAuth token additionally triggers `claude update`, which may install a newer Claude Code version
+- **Writes almost nothing** - until you create a task the app writes no files at all. With a task queue it writes exactly four paths inside your Claude config directory: `auto-scheduler-state.json`, the `auto-scheduler-logs/` directory, one log file per run, and `auto-scheduler-tasks.json` itself - the last only when you add, edit, or delete a task in the popup, never on its own. Nothing else on disk is touched. The only lasting registry changes are two `HKEY_CURRENT_USER` values: the toast notification identity (display name and icon, re-registered on every start) and the autostart entry, written only when you enable autostart. An expired OAuth token additionally triggers `claude update`, which may install a newer Claude Code version
 - **Unattended tasks are opt-in and loud about it** - the [task queue](#task-queue) runs only what you put in `auto-scheduler-tasks.json`, and it runs those tasks with `--dangerously-skip-permissions`. That flag is hardcoded and cannot be turned off; see [Safety](#safety) before you queue anything
 - **No dynamic code execution** - no `eval()`, `exec()`, `compile()`, or dynamic imports
 - **No obfuscation** - no encoded strings, no hidden URLs, no minified logic
@@ -230,7 +230,9 @@ If your Claude CLI lives somewhere the app cannot launch directly (for example i
 
   **Clicking a finished task opens its log.** Waiting, pending, and running entries are greyed out.
 
-Exit code `124` means the task hit its `timeout_minutes` and was killed; `130` means you quit the app and chose to stop it. There are no retries, so a permanently failing task can never loop and burn quota, and failures raise no notification - automatic events stay silent by design.
+- **The popup's task queue** - expand the popup (the ⇱ button in its header) for the full picture: every task against your live five-hour quota, with a marker on the bar showing the level each one is waiting for, filters for active and finished tasks, and a per-task detail view with the run's start time, elapsed time, the quota level it started at, and its log streaming in live. A running task can be stopped from there.
+
+Exit code `124` means the task hit its `timeout_minutes` and was killed; `130` means you quit the app and chose to stop everything; `143` means you stopped that one task from the popup. There are no retries, so a permanently failing task can never loop and burn quota, and failures raise no notification - automatic events stay silent by design.
 
 While the queue still has work, the app keeps polling even when your computer is idle or locked. Normally polling pauses entirely while you are away; draining the queue overnight is the whole point.
 
@@ -249,13 +251,16 @@ If you quit while a task is live, the app asks what to do. The Windows button ca
 > [!WARNING]
 > Queued tasks run with `--dangerously-skip-permissions`. The flag is hardcoded and cannot be turned off - it is what makes unattended execution possible at all. Every queued task can read, write, and delete files and run commands in its working directory **without asking you first**. Only queue prompts you would be comfortable letting run unsupervised, and set `cwd` to the project they belong to.
 
-Using the task queue is also the only situation in which this app writes files. It writes exactly three paths, all inside your Claude config directory:
+Using the task queue is also the only situation in which this app writes files. It writes exactly four paths, all inside your Claude config directory:
 
 1. `auto-scheduler-state.json`
 2. the `auto-scheduler-logs/` directory
 3. one log file per run inside it
+4. `auto-scheduler-tasks.json` - **only** when you add, edit, or delete a task in the popup
 
-Nothing else on disk is touched. Killing a task on quit terminates only the direct `claude` child - grandchildren it spawned are not walked and may survive.
+The first three are written in the background as tasks run. The task file is different: it is yours, and the app touches it only in direct response to a click in the editor. It refuses to write if the file changed on disk since the editor opened it, so an edit you made in a text editor meanwhile is never silently overwritten, and it validates the whole file first, so a bad edit can never disable your queue on the next start.
+
+Nothing else on disk is touched. Killing a task terminates only the direct `claude` child - grandchildren it spawned are not walked and may survive.
 
 See [Task Queue](docs/task-queue.md) for the full reference: validation rules, the state file format, the log format, the environment variables each task receives, and troubleshooting.
 

@@ -13,13 +13,14 @@ from unittest.mock import MagicMock, patch
 
 from auto_scheduler_for_claude.app import (
     IDCANCEL, IDNO, IDYES, POLL_FAST, RESET_BUFFER, TASK_FAILED_GLYPH, TASK_STATUS_GLYPHS,
-    WM_LBUTTONDBLCLK, WM_LBUTTONUP, AutoSchedulerForClaude, _align_to_reset,
+    WM_LBUTTONDBLCLK, WM_LBUTTONUP, AutoSchedulerForClaude, _align_to_reset, _future_iso,
 )
+from auto_scheduler_for_claude.task_registry import ERROR_INVALID, ERROR_READ
 from auto_scheduler_for_claude.cache import UpdateResult
 from auto_scheduler_for_claude.claude_cli import RefreshResult
 from auto_scheduler_for_claude.i18n import T
 from auto_scheduler_for_claude.task_runner import STATUS_DONE, STATUS_RUNNING, STATUS_WAITING
-from auto_scheduler_for_claude.tasks import Task
+from auto_scheduler_for_claude.tasks import Task, ValidationError
 
 
 def _make_task_runner() -> MagicMock:
@@ -3888,6 +3889,267 @@ class TestTaskQueueTray(unittest.TestCase):
         with patch('auto_scheduler_for_claude.app.pystray') as mock_pystray:
             self.app._build_task_menu()
         self.assertEqual(mock_pystray.MenuItem.call_count, 2)
+
+
+# ---------------------------------------------------------------------------
+# queue_payload
+# ---------------------------------------------------------------------------
+
+def _queue_snapshot(tasks, five_hour_pct=38.0, **overrides):
+    """Build the raw TaskRunner.snapshot() shape queue_payload consumes."""
+    snapshot = {
+        'version': 1, 'disabled': False, 'draining': False,
+        'running_count': sum(1 for row in tasks if row['status'] == STATUS_RUNNING),
+        'max_concurrent': 1, 'five_hour_pct': five_hour_pct, 'tasks': tasks,
+    }
+    snapshot.update(overrides)
+    return snapshot
+
+
+def _row(task_id='daily', status=STATUS_WAITING, **overrides):
+    row = {
+        'id': task_id, 'description': '', 'cwd': None, 'prompt_file': None,
+        'max_usage_percent': 40.0, 'timeout_minutes': 180.0, 'status': status,
+        'exit_code': None, 'started_at': None, 'finished_at': None,
+        'started_at_utilization': None, 'log': None, 'has_log': False, 'elapsed_seconds': None,
+    }
+    row.update(overrides)
+    return row
+
+
+class TestQueuePayload(unittest.TestCase):
+    """Tests for the popup's task-queue block."""
+
+    def setUp(self):
+        self.app = _make_app()
+
+    def tearDown(self):
+        _cleanup(self.app)
+
+    def _payload(self, tasks, five_hour_pct=38.0, usage=None, **overrides):
+        self.app.task_runner.snapshot.return_value = _queue_snapshot(tasks, five_hour_pct, **overrides)
+        self.app.task_runner.status.return_value = STATUS_WAITING
+        self.app.cache = MagicMock()
+        self.app.cache.snapshot.usage = usage if usage is not None else {
+            'five_hour': {'utilization': five_hour_pct, 'resets_at': _future_iso(hours=2)},
+        }
+        return self.app.queue_payload()
+
+    def test_empty_queue(self):
+        payload = self._payload([])
+        self.assertEqual(payload['tasks'], [])
+        self.assertEqual(payload['counts'], {'all': 0, 'active': 0, 'done': 0})
+        self.assertEqual(payload['markers'], [])
+
+    def test_counts_split_active_from_done(self):
+        payload = self._payload([
+            _row('a', STATUS_WAITING), _row('b', STATUS_RUNNING),
+            _row('c', STATUS_DONE, exit_code=0), _row('d', 'interrupted'),
+        ])
+        self.assertEqual(payload['counts'], {'all': 4, 'active': 2, 'done': 2})
+
+    def test_name_falls_back_to_the_id(self):
+        payload = self._payload([_row('daily'), _row('other', description='Nightly sweep')])
+        self.assertEqual([task['name'] for task in payload['tasks']], ['daily', 'Nightly sweep'])
+
+    def test_failed_run_gets_the_failure_glyph(self):
+        payload = self._payload([_row('a', STATUS_DONE, exit_code=1)])
+        self.assertEqual(payload['tasks'][0]['glyph'], TASK_FAILED_GLYPH)
+        self.assertTrue(payload['tasks'][0]['failed'])
+
+    def test_successful_run_keeps_the_done_glyph(self):
+        payload = self._payload([_row('a', STATUS_DONE, exit_code=0)])
+        self.assertEqual(payload['tasks'][0]['glyph'], TASK_STATUS_GLYPHS[STATUS_DONE])
+        self.assertFalse(payload['tasks'][0]['failed'])
+
+    def test_waiting_task_reports_the_missing_headroom(self):
+        payload = self._payload([_row('a', STATUS_WAITING, max_usage_percent=20.0)], five_hour_pct=38.0)
+        self.assertIn('18', payload['tasks'][0]['result_text'])
+
+    def test_running_task_has_no_result_text_so_the_popup_can_tick_it(self):
+        row = _row('a', STATUS_RUNNING, started_at='2026-08-10T22:04:11+00:00', elapsed_seconds=4320)
+        payload = self._payload([row])
+        self.assertEqual(payload['tasks'][0]['result_text'], '')
+        self.assertIsNotNone(payload['tasks'][0]['started_epoch'])
+
+    def test_finished_task_has_no_started_epoch(self):
+        """Only a live run may tick; a finished one would count up forever."""
+        row = _row('a', STATUS_DONE, exit_code=0, started_at='2026-08-10T22:04:11+00:00',
+                   finished_at='2026-08-10T22:10:11+00:00')
+        payload = self._payload([row])
+        self.assertIsNone(payload['tasks'][0]['started_epoch'])
+
+    def test_zero_timeout_reads_as_no_limit(self):
+        payload = self._payload([_row('a', timeout_minutes=0.0)])
+        self.assertEqual(payload['tasks'][0]['timeout_text'], T['queue_no_timeout'])
+
+    def test_only_a_running_task_can_be_stopped_and_only_others_deleted(self):
+        payload = self._payload([_row('a', STATUS_RUNNING), _row('b', STATUS_WAITING)])
+        self.assertEqual([task['can_stop'] for task in payload['tasks']], [True, False])
+        self.assertEqual([task['can_delete'] for task in payload['tasks']], [False, True])
+
+    def test_markers_only_cover_tasks_that_can_still_run(self):
+        """One-shot means a finished task's threshold predicts nothing."""
+        payload = self._payload([
+            _row('a', STATUS_WAITING, max_usage_percent=20.0),
+            _row('b', STATUS_DONE, exit_code=0, max_usage_percent=90.0),
+        ])
+        self.assertEqual([marker['label'] for marker in payload['markers']], ['a'])
+
+    def test_markers_are_sorted_and_met_uses_the_same_comparison_as_selection(self):
+        payload = self._payload([
+            _row('high', max_usage_percent=80.0),
+            _row('exact', max_usage_percent=38.0),
+            _row('low', max_usage_percent=20.0),
+        ], five_hour_pct=38.0)
+        self.assertEqual([marker['label'] for marker in payload['markers']], ['low', 'exact', 'high'])
+        # `<=`, so a threshold equal to current utilization counts as met.
+        self.assertEqual([marker['met'] for marker in payload['markers']], [False, True, True])
+
+    def test_gate_bar_describes_the_field_the_queue_is_gated_on(self):
+        payload = self._payload([_row('a')], five_hour_pct=38.0)
+        self.assertEqual(payload['gate']['key'], 'five_hour')
+        self.assertEqual(payload['gate']['pct_text'], '38%')
+        self.assertAlmostEqual(payload['gate']['fill_pct'], 0.38)
+
+    def test_no_five_hour_quota_means_no_gate_bar(self):
+        """The same condition under which the runner starts nothing."""
+        payload = self._payload([_row('a')], usage={'seven_day': {'utilization': 20, 'resets_at': ''}})
+        self.assertIsNone(payload['gate'])
+
+    def test_null_five_hour_quota_means_no_gate_bar(self):
+        payload = self._payload([_row('a')], usage={'five_hour': None})
+        self.assertIsNone(payload['gate'])
+
+    def test_unknown_utilization_leaves_waiting_tasks_without_a_headroom_number(self):
+        payload = self._payload([_row('a', STATUS_WAITING)], five_hour_pct=None, usage={})
+        self.assertEqual(payload['tasks'][0]['result_text'], T['task_state_waiting'])
+
+
+# ---------------------------------------------------------------------------
+# Registry editing
+# ---------------------------------------------------------------------------
+
+class TestRegistryEditing(unittest.TestCase):
+    """Tests for the popup-driven add/edit/delete of the task registry."""
+
+    def setUp(self):
+        self.app = _make_app()
+        self.app.task_runner.completed_ids.return_value = []
+        self.app.task_runner.status.return_value = STATUS_WAITING
+        self.entry = {'id': 'daily', 'prompt': 'Do it.', 'max_usage_percent': 40}
+
+    def tearDown(self):
+        _cleanup(self.app)
+
+    def _patch_registry(self, entries, stamp=(1.0, 10), read_error=None, write=None):
+        return (
+            patch('auto_scheduler_for_claude.app.read_registry', return_value=(entries, stamp, read_error)),
+            patch('auto_scheduler_for_claude.app.write_registry', return_value=write or ([], [], None)),
+        )
+
+    def test_read_reports_entries_stamp_and_used_ids(self):
+        self.app.task_runner.completed_ids.return_value = ['daily']
+        read, write = self._patch_registry([self.entry])
+        with read, write:
+            result = self.app.registry_read()
+
+        self.assertEqual(result['entries'], [self.entry])
+        self.assertEqual(result['stamp'], [1.0, 10])
+        self.assertEqual(result['completed_ids'], ['daily'])
+        self.assertIsNone(result['error'])
+
+    def test_save_appends_when_the_index_is_negative(self):
+        read, write = self._patch_registry([self.entry])
+        with read, write as mock_write:
+            self.app.registry_save({'id': 'other'}, -1, [1.0, 10])
+
+        written = mock_write.call_args[0][0]
+        self.assertEqual([e['id'] for e in written], ['daily', 'other'])
+
+    def test_save_replaces_in_place_so_file_order_survives(self):
+        """File order is queue priority - an edit must not reorder the queue."""
+        entries = [{'id': 'a'}, {'id': 'b'}, {'id': 'c'}]
+        read, write = self._patch_registry(entries)
+        with read, write as mock_write:
+            self.app.registry_save({'id': 'b2'}, 1, [1.0, 10])
+
+        self.assertEqual([e['id'] for e in mock_write.call_args[0][0]], ['a', 'b2', 'c'])
+
+    def test_save_refuses_when_the_file_changed_since_it_was_read(self):
+        read, write = self._patch_registry([self.entry], stamp=(9.0, 99))
+        with read, write as mock_write:
+            result = self.app.registry_save({'id': 'other'}, -1, [1.0, 10])
+
+        self.assertFalse(result['ok'])
+        self.assertEqual(result['error'], T['registry_error_stale'])
+        mock_write.assert_not_called()
+
+    def test_save_reloads_the_runner_and_rebuilds_the_tray_menu(self):
+        task = Task(id='daily', prompt='x', max_usage_percent=40, timeout_minutes=180, cwd=None, description='')
+        read, write = self._patch_registry([self.entry], write=([task], [], None))
+        with read, write, patch.object(self.app, '_rebuild_menu') as mock_rebuild:
+            result = self.app.registry_save(self.entry, 0, [1.0, 10])
+
+        self.assertTrue(result['ok'])
+        self.app.task_runner.reload.assert_called_once_with([task])
+        mock_rebuild.assert_called_once()
+
+    def test_save_surfaces_validation_errors_per_field(self):
+        error = ValidationError(0, 'daily', 'max_usage_percent', '  task "daily": bad percent')
+        read, write = self._patch_registry([self.entry], write=(None, [error], ERROR_INVALID))
+        with read, write:
+            result = self.app.registry_save(self.entry, 0, [1.0, 10])
+
+        self.assertFalse(result['ok'])
+        self.assertEqual(result['errors'], [{'field': 'max_usage_percent', 'message': 'task "daily": bad percent'}])
+        self.app.task_runner.reload.assert_not_called()
+
+    def test_save_reports_an_unreadable_registry(self):
+        read, write = self._patch_registry([], read_error=ERROR_READ)
+        with read, write as mock_write:
+            result = self.app.registry_save(self.entry, -1, [1.0, 10])
+
+        self.assertEqual(result['error'], T['registry_error_read'])
+        mock_write.assert_not_called()
+
+    def test_delete_removes_the_entry_at_the_index(self):
+        entries = [{'id': 'a'}, {'id': 'b'}, {'id': 'c'}]
+        read, write = self._patch_registry(entries)
+        with read, write as mock_write:
+            self.app.registry_delete(1, [1.0, 10])
+
+        self.assertEqual([e['id'] for e in mock_write.call_args[0][0]], ['a', 'c'])
+
+    def test_delete_refuses_while_the_task_is_running(self):
+        """Removing a live task's entry would desync the tray, popup, and process."""
+        self.app.task_runner.status.return_value = STATUS_RUNNING
+        read, write = self._patch_registry([self.entry])
+        with read, write as mock_write:
+            result = self.app.registry_delete(0, [1.0, 10])
+
+        self.assertFalse(result['ok'])
+        self.assertEqual(result['error'], T['queue_error_delete_running'])
+        mock_write.assert_not_called()
+
+    def test_delete_refuses_an_out_of_range_index(self):
+        read, write = self._patch_registry([self.entry])
+        with read, write as mock_write:
+            result = self.app.registry_delete(7, [1.0, 10])
+
+        self.assertFalse(result['ok'])
+        mock_write.assert_not_called()
+
+    def test_stop_task_delegates_to_the_runner(self):
+        self.app.task_runner.stop.return_value = True
+        self.assertTrue(self.app.stop_task('daily'))
+        self.app.task_runner.stop.assert_called_once_with('daily')
+
+    def test_open_task_log_without_a_log_does_nothing(self):
+        self.app.task_runner.log_path.return_value = None
+        with patch('auto_scheduler_for_claude.app.os.startfile') as mock_startfile:
+            self.assertFalse(self.app.open_task_log('daily'))
+        mock_startfile.assert_not_called()
 
 
 if __name__ == '__main__':

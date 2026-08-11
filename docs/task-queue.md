@@ -29,12 +29,17 @@ therefore gives each account its own queue, state, and logs without any extra co
 
 | Path | Written by | Purpose |
 |---|---|---|
-| `auto-scheduler-tasks.json` | you | The task registry. The app only reads it. |
+| `auto-scheduler-tasks.json` | you, or the popup's task editor | The task registry. |
 | `auto-scheduler-state.json` | the app | Which tasks have run, and how they ended. |
 | `auto-scheduler-logs/` | the app | One log file per run. |
 
-If `auto-scheduler-tasks.json` does not exist, the feature is simply off - the tray submenu is
-hidden and nothing is written.
+The registry is yours to edit by hand; the app writes it **only** in direct response to an add,
+edit, or delete in the popup's task editor - never from a poll or a timer. The other two are
+written in the background as tasks run.
+
+If `auto-scheduler-tasks.json` does not exist, the feature is off - the tray submenu is hidden and
+nothing is written. The expanded popup still shows an empty task queue, which is where the first
+task can be created.
 
 ---
 
@@ -119,8 +124,12 @@ Rejected, among others:
 - an unknown field name - a `timeout_minutes` typo must not silently fall back to 180 on an
   unattended agent
 
-The file is read **once at startup**. Editing it needs an app restart, the same as the settings
-file.
+The same validation runs in the popup's task editor, on the whole prospective file, before
+anything is written - so an entry the editor accepts is an entry the next startup accepts, and a
+bad edit can never disable the queue.
+
+The file is read **once at startup**, or again right after the editor writes it. A change made in
+a text editor needs an app restart, the same as the settings file.
 
 ---
 
@@ -187,11 +196,16 @@ Poll cadence, reset alignment, and notification deferral are unchanged.
       "started_at": "2026-08-10T22:04:11+00:00",
       "finished_at": "2026-08-10T23:51:02+00:00",
       "exit_code": 0,
-      "log": "daily-20260810-220411.log"
+      "log": "daily-20260810-220411.log",
+      "started_at_utilization": 31
     }
   }
 }
 ```
+
+`started_at_utilization` is the five-hour utilization the run started at, shown in the popup's task
+detail view. It is optional: records written by older versions simply do not have it, and the
+popup shows `-` for them. The file format version stays `1`.
 
 - Written atomically: a temp file in the same directory, then an `os.replace`.
 - The record is written when the task **starts** (`finished_at: null`) and rewritten on exit.
@@ -211,6 +225,10 @@ Poll cadence, reset alignment, and notification deferral are unchanged.
 | any other | Whatever `claude` returned. Recorded as-is; there are no retries. |
 | `124` | The task hit `timeout_minutes` and was killed. |
 | `130` | You quit the app and chose to stop the running task(s). |
+| `143` | You stopped that one task from the popup's task detail view. |
+
+`130` and `143` are deliberately different: the state file should still say whether a run ended
+because the whole app was shutting down or because you stopped that task on its own.
 
 Any finished run - success, failure, or timeout kill - marks the task complete. There are no
 retries, so a permanently failing task can never loop and burn quota. Failures raise no
@@ -231,6 +249,7 @@ prompt:  D:\Projecten\_AI_\trading-agent\prompts\daily.md
 command: ['C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd', '-p', 'Read agent_system/...', '--dangerously-skip-permissions']
 cwd:     D:\Projecten\_AI_\trading-agent
 timeout: 180 min
+usage:   31% of the five-hour window
 
 ...the task's own output...
 
@@ -240,12 +259,76 @@ duration:  6411s
 ```
 
 The `prompt:` line appears only for a task that uses `prompt_file`, and names the resolved path
-the text was read from.
+the text was read from. The `usage:` line appears whenever a five-hour quota was reported.
 
 One-shot semantics bound growth to one log per task, so there is no retention or rotation
 policy. If the log directory cannot be created or the file cannot be opened, the task is **not**
 started, an error is shown once, and the queue is disabled for the session - a task whose output
 would be lost is worse than a task that never ran.
+
+---
+
+## In the popup
+
+The tray submenu is a glance; the popup is where the queue is actually managed. Expand it with the
+**⇱** button in the header.
+
+### The queue view
+
+At the top, the five-hour quota the whole queue is gated on: the current percentage, when it
+resets, and a bar carrying two kinds of mark.
+
+- The **time marker** already familiar from the usage bars - how far into the window you are.
+- One **threshold marker per task that can still run**, at the level that task is waiting for.
+  A marker is filled once its threshold is met, so the bar answers "what starts next, and what is
+  it waiting for?" at a glance. Finished tasks have no marker: one-shot means they will not run
+  again whatever the quota does.
+
+Below it, the remaining quotas, and then the task table: status, task, the threshold it runs at,
+its timeout, when it last ran, and how it ended. Filter chips switch between all tasks, the ones
+that can still run, and the ones that are finished. A running task's elapsed time counts up live.
+
+When the account reports no five-hour quota, the bar is hidden and the queue says so - that is the
+same condition under which nothing would ever start.
+
+### Task detail
+
+Click any row. The detail view shows when the run started, how long it has been going, its
+timeout, and the five-hour utilization it started at, followed by its log - streaming in live
+while the task runs, and scrolling itself unless you scroll up to read back.
+
+**Open log file** hands the log to your default editor. **Stop task** is offered only while a task
+is running; it asks first, records the run as exit `143`, and - as everywhere else - stops only the
+`claude` process itself, not anything that process started.
+
+### Adding and editing tasks
+
+**+ New task** opens an editor for the same fields the registry has, validated by exactly the same
+rules (see [Fields](#fields) above) before anything is written. The prompt can be typed inline or
+pointed at a file, and the working directory and prompt file have folder and file pickers.
+
+The threshold slider shows what it would mean right now: "usage is 38% right now, so this task
+would start on the next poll", using the same `<=` comparison the queue itself uses. If the id you
+type already has a run recorded, the editor says so - that task would never start, because
+one-shot is keyed on the id.
+
+Editing a task keeps its position in the file, because file order is queue priority. Deleting one
+is refused while it is running, and otherwise leaves its run record and log file alone: the record
+is what makes the id used up.
+
+Two refusals protect the file:
+
+- If it changed on disk after the editor read it, the save is refused rather than merged. Close and
+  reopen the popup to pick up the newer version.
+- If the resulting file would not validate, nothing is written and the problems are listed in the
+  editor.
+
+Adding a task also refreshes the tray submenu, and the task becomes eligible at the next successful
+usage fetch - the editor never starts anything itself.
+
+Writing the file normalizes its formatting (two-space indent, one entry per object). Comments are
+not possible in JSON, so nothing is lost, but hand-tuned whitespace does not survive an edit made
+in the popup.
 
 ---
 
@@ -294,9 +377,10 @@ one entry per task:
 | ✖ | done | Finished with a non-zero exit code. |
 | ⚠ | interrupted | Started but never finished; the app died mid-run. |
 
-Status is re-rendered every time the menu opens. The task *set* is fixed at startup, because the
-registry is read once. Clicking a finished task opens its log; clicking a waiting, pending, or
-running one does nothing (the entry is greyed out).
+Status is re-rendered every time the menu opens, and the submenu is rebuilt whenever the task
+editor changes the registry, so a task added from the popup appears without a restart. A change
+made to the file in a text editor still needs one. Clicking a finished task opens its log;
+clicking a waiting, pending, or running one does nothing (the entry is greyed out).
 
 ---
 
