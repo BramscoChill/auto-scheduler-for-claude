@@ -26,7 +26,7 @@ API_URL_USAGE = 'https://api.anthropic.com/api/oauth/usage'
 API_URL_PROFILE = 'https://api.anthropic.com/api/oauth/profile'
 CLAUDE_CONFIG_DIR = Path(os.environ.get('CLAUDE_CONFIG_DIR', '')) if os.environ.get('CLAUDE_CONFIG_DIR') else Path.home() / '.claude'
 CLAUDE_CREDENTIALS = CLAUDE_CONFIG_DIR / '.credentials.json'
-_FALLBACK_USER_AGENT = 'claude-code/2.1.204'
+_FALLBACK_USER_AGENT = 'claude-code/2.1.288'
 
 
 def read_access_token() -> str | None:
